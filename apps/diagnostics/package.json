@@ -1,0 +1,17 @@
+{
+  "name": "diagnostics",
+  "version": "1.0.0",
+  "scripts": {
+    "arkiv:wallet-check": "node --env-file=../../.env.local ./arkiv-wallet-check.mjs",
+    "arkiv:write-smoke": "node --env-file=../../.env.local ./arkiv-write.mjs",
+    "arkiv:query-smoke": "node --env-file=../../.env.local ./arkiv-query.mjs",
+    "arkiv:expiry-smoke": "node --env-file=../../.env.local ./arkiv-expiry.mjs"
+  },
+  "license": "ISC",
+  "type": "module",
+  "private": true,
+  "dependencies": {
+    "@arkiv-network/sdk": "0.8.0",
+    "viem": "2.56.3"
+  }
+}
