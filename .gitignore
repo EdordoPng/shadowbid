@@ -1,0 +1,13 @@
+.env
+.env.local
+.env.*.local
+*.key
+*.pem
+secrets/
+node_modules/
+dist/
+.next/
+coverage/
+*.log
+.DS_Store
+Thumbs.db
