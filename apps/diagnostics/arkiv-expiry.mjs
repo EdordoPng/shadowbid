@@ -16,17 +16,17 @@ import { privateKeyToAccount } from "viem/accounts";
 const EXPECTED_ADDRESS = "0x490b01048Af9878434727daF2C3291D2ff8a67B0";
 const EXPIRY_BLOCKS = 12;
 const WAIT_TIMEOUT_MS = 90_000;
-const privateKey = process.env.ARKIV_BUYER_PRIVATE_KEY;
+const privateKey = process.env.SHADOWBID_BUYER_PRIVATE_KEY;
 
 if (!privateKey) {
-  console.error("ARKIV_BUYER_PRIVATE_KEY is missing");
+  console.error("SHADOWBID_BUYER_PRIVATE_KEY is missing");
   process.exit(1);
 }
 
 const account = privateKeyToAccount(privateKey);
 
 if (account.address.toLowerCase() !== EXPECTED_ADDRESS.toLowerCase()) {
-  console.error("ARKIV_BUYER_PRIVATE_KEY address mismatch");
+  console.error("SHADOWBID_BUYER_PRIVATE_KEY address mismatch");
   process.exit(1);
 }
 

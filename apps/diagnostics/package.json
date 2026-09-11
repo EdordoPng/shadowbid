@@ -5,7 +5,9 @@
     "arkiv:wallet-check": "node --env-file=../../.env.local ./arkiv-wallet-check.mjs",
     "arkiv:write-smoke": "node --env-file=../../.env.local ./arkiv-write.mjs",
     "arkiv:query-smoke": "node --env-file=../../.env.local ./arkiv-query.mjs",
-    "arkiv:expiry-smoke": "node --env-file=../../.env.local ./arkiv-expiry.mjs"
+    "arkiv:expiry-smoke": "node --env-file=../../.env.local ./arkiv-expiry.mjs",
+    "avalanche:read-smoke": "node ./avalanche-read.mjs",
+    "avalanche:transfer-smoke": "node --env-file=../../.env.local ./avalanche-transfer.mjs"
   },
   "license": "ISC",
   "type": "module",
