@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "check": "node --check ./src/specification.js && node --check ./src/deliverable.js && node --check ./src/swarm-smoke.js",
+    "check": "node --check ./src/specification.js && node --check ./src/deliverable.js && node --check ./src/swarm-smoke.js && node --check ./src/buyer-request.js && node --check ./src/seller-quote.js && node --check ./src/buyer-award.js && node --check ./src/fund-award.js && node --check ./src/delivery.js && node --check ./src/delivery-smoke.js && node --check ./src/release-award.js",
     "test": "node --test"
   },
   "dependencies": {

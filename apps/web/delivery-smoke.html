@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ShadowBid Deliverable</title>
+  <style>
+    :root {
+      color: #17211b;
+      background: #f4f7f5;
+      font-family: system-ui, sans-serif;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+    }
+
+    main {
+      width: min(42rem, calc(100% - 2rem));
+      padding: 2rem;
+      border: 1px solid #cbd8cf;
+      border-radius: 1rem;
+      background: white;
+      box-shadow: 0 1rem 3rem rgb(23 33 27 / 8%);
+    }
+
+    dl {
+      display: grid;
+      grid-template-columns: max-content 1fr;
+      gap: 0.6rem 1rem;
+    }
+
+    dt { font-weight: 700; }
+    dd { margin: 0; overflow-wrap: anywhere; }
+
+    .actions {
+      display: flex;
+      gap: 0.75rem;
+      margin: 1.5rem 0;
+    }
+
+    button {
+      padding: 0.7rem 1rem;
+      border: 0;
+      border-radius: 0.5rem;
+      color: white;
+      background: #176b43;
+      cursor: pointer;
+    }
+
+    button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>ShadowBid Slice 4E deliverable</h1>
+    <p>Fresh deliverable upload to Swarm for the Slice 4E delivery proof.</p>
+
+    <dl aria-live="polite">
+      <dt>Connected identity</dt>
+      <dd id="identity">Initializing…</dd>
+      <dt>canUpload</dt>
+      <dd id="can-upload">false</dd>
+      <dt>Deliverable bytes</dt>
+      <dd id="byte-length">—</dd>
+      <dt>Deliverable hash</dt>
+      <dd id="deliverable-hash">—</dd>
+      <dt>Deliverable ref</dt>
+      <dd id="deliverable-reference">—</dd>
+      <dt>Status</dt>
+      <dd id="status">INITIALIZING</dd>
+    </dl>
+
+    <div class="actions">
+      <button id="connect" type="button" disabled>Connect Swarm ID</button>
+      <button id="upload" type="button" disabled>Upload Slice 4E deliverable</button>
+    </div>
+
+    <div id="swarm-id-container"></div>
+  </main>
+
+  <script type="module" src="/src/delivery-smoke.js"></script>
+</body>
+</html>
