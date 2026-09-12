@@ -527,11 +527,12 @@ function renderWorkspace() {
   $('open-deliverable').disabled = deliverableAccessBusy;
   $('download-deliverable').disabled = deliverableAccessBusy;
   $('seller-delivery-controls').hidden = !(status === 'FUNDED' && connectedSeller);
-  $('delivery-handoff').hidden = !(delivered && connectedSeller);
-  if (delivered && connectedSeller) {
-    const query = buildDeliveryHandoffQuery(deliveryRecord);
-    $('delivery-handoff-link').value = `${location.origin}${location.pathname}#procurement/${workspace.award.awardId}?${query}`;
-  }
+  // Demo/operator-only: the handoff link is never rendered in the normal
+  // Seller UI (cross-profile MVP plumbing, not a product concept), but stays
+  // reachable from the DevTools console for the current cross-profile MVP.
+  window.shadowbidDeliveryHandoffLink = (delivered && connectedSeller)
+    ? `${location.origin}${location.pathname}#procurement/${workspace.award.awardId}?${buildDeliveryHandoffQuery(deliveryRecord)}`
+    : undefined;
   $('settlement-receipt').hidden = !settled;
   if (settled) $('settlement-receipt-amount').textContent = `${workspace.amountLabel} USDC released to Seller`;
   if (settled) {
@@ -544,11 +545,9 @@ function renderWorkspace() {
     $('delivery-copy').textContent = 'The Buyer retrieved and verified the delivered work.';
   } else if (delivered) {
     message('funding-message', connectedBuyer ? 'Retrieve the deliverable before approval.' : 'The deliverable is available for the Award Buyer.');
-    message('delivery-message', connectedSeller
-      ? 'Delivery submitted. The deliverable is available for the Award Buyer.'
-      : 'Available on Swarm. Approval remains blocked until Buyer retrieval succeeds.');
+    message('delivery-message', connectedSeller ? '' : 'Available on Swarm. Approval remains blocked until Buyer retrieval succeeds.');
     $('delivery-copy').textContent = connectedSeller
-      ? 'Delivery submitted.'
+      ? 'Delivery submitted'
       : 'The Seller delivered the work. Retrieve it before approval.';
   } else if (funded) {
     message('funding-message', connectedSeller ? 'Submit the completed work to the Work Capsule.' : 'Waiting for the Award Seller to submit delivery.');
@@ -929,17 +928,6 @@ document.querySelectorAll('.proof-copy').forEach(button => {
     }
     setTimeout(() => { button.textContent = original; }, 1500);
   });
-});
-
-$('copy-delivery-handoff-link').addEventListener('click', async () => {
-  const link = $('delivery-handoff-link');
-  try {
-    await navigator.clipboard.writeText(link.value);
-    message('delivery-message', 'Buyer delivery link copied.');
-  } catch {
-    link.select();
-    message('delivery-message', 'Clipboard unavailable — link selected, copy manually (Ctrl/Cmd+C).', true);
-  }
 });
 
 async function accessDeliverable(mode) {
