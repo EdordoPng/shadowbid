@@ -148,9 +148,6 @@ export async function releaseProcurement({ workspace, delivery, fujiPublicClient
   if (delivery?.retrievedByBuyer !== true || delivery?.buyerVerification?.hashEquality !== true) {
     throw new Error('Retrieve and verify the deliverable before release.');
   }
-  if (!workspace.commitment) {
-    throw new Error('The original Request is no longer available on Arkiv; the canonical specification required to release this escrow cannot be reconstructed.');
-  }
   const result = await releaseAward({
     publicClient: fujiPublicClient,
     walletClient: fujiWalletClient,

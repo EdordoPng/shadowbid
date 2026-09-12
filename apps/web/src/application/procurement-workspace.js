@@ -54,22 +54,32 @@ export async function loadProcurementWorkspace({ arkivPublicClient, fujiPublicCl
     }),
   ]);
   const escrowState = Number(stored.state);
-  // The canonical commitment (and its termsHash cross-check) can only be
-  // reconstructed when the RFQ's specificationHash is still readable. When
-  // the RFQ has expired this simply stays undefined — never a fallback
-  // termsHash, never a fabricated one.
+  // PRE-FUND (NONE): the canonical commitment must be independently derived
+  // from the RFQ's specificationHash, to know what funding should write
+  // on-chain — never a fallback termsHash, never fabricated; simply
+  // undefined once the RFQ has expired, so fundProcurement correctly
+  // refuses rather than guessing.
+  // POST-FUND (FUNDED/RELEASED): the escrow itself is now the authoritative
+  // economic commitment — its already-verified termsHash is read straight
+  // from Fuji, never re-derived from the (possibly long-expired) RFQ. A
+  // naturally expired RFQ must not make an already-funded procurement
+  // impossible to release.
   let commitment;
-  if (rfq?.specificationHash !== undefined) {
+  if (escrowState === AVALANCHE_ESCROW_STATE.FUNDED || escrowState === AVALANCHE_ESCROW_STATE.RELEASED) {
+    commitment = Object.freeze({
+      procurementId,
+      seller: stored.seller,
+      token: stored.token,
+      amount: stored.amount,
+      termsHash: stored.termsHash,
+      deadline: stored.deadline,
+    });
+  } else if (rfq?.specificationHash !== undefined) {
     try {
       commitment = buildEscrowCommitmentInput({ award, token: FUJI_USDC_ADDRESS, specificationHash: rfq.specificationHash });
     } catch {
       commitment = undefined;
     }
-  }
-  if (commitment &&
-      (escrowState === AVALANCHE_ESCROW_STATE.FUNDED || escrowState === AVALANCHE_ESCROW_STATE.RELEASED) &&
-      stored.termsHash !== commitment.termsHash) {
-    throw new Error('Fuji escrow termsHash does not match the canonical Award commitment.');
   }
   if (escrowState === AVALANCHE_ESCROW_STATE.REFUNDED) {
     throw new Error('This procurement was refunded and is outside the 5E happy path.');

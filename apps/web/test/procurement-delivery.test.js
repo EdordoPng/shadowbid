@@ -148,6 +148,33 @@ test('release remains blocked until Buyer retrieval and then verifies exact Sell
   assert.deepEqual(calls, ['release']);
 });
 
+test('release proceeds even after the RFQ has expired, once the escrow was already FUNDED (commitment sourced from chain, not re-derived from the RFQ)', async () => {
+  const base = workspace();
+  const expiredRfqWorkspace = { ...base, rfq: undefined };
+  const delivery = await delivered();
+  const calls = [];
+  const publicClient = {
+    released: false,
+    balance: 10n,
+    async readContract({ functionName }) {
+      if (functionName === 'getEscrow') return { state: this.released ? 2 : 1, termsHash: TERMS_HASH };
+      if (functionName === 'balanceOf') return this.balance;
+      throw new Error('unexpected read');
+    },
+    async simulateContract() { return { request: { functionName: 'release' } }; },
+    async waitForTransactionReceipt() { this.released = true; this.balance += 5n; return { status: 'success', blockNumber: 1n }; },
+  };
+  const walletClient = { account: { address: BUYER }, async writeContract() { calls.push('release'); return `0x${'55'.repeat(32)}`; } };
+  const retrieved = await retrieveProcurementDeliverable({
+    workspace: expiredRfqWorkspace, delivery, buyer: BUYER,
+    swarmClient: { async downloadData() { return new Uint8Array(delivery.uploadedDeliverable.deliverableBytes); } },
+  });
+  assert.equal(retrieved.retrievedByBuyer, true);
+  const result = await releaseProcurement({ workspace: expiredRfqWorkspace, delivery: retrieved, fujiPublicClient: publicClient, fujiWalletClient: walletClient });
+  assert.equal(result.status, 'SETTLED');
+  assert.deepEqual(calls, ['release']);
+});
+
 test('cross-profile handoff link carries only metadata and lets a different profile reconstruct DELIVERED', async () => {
   const delivery = await delivered();
   const query = buildDeliveryHandoffQuery(delivery);
