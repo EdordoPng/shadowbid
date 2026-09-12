@@ -1,0 +1,20 @@
+{
+  "name": "@shadowbid/shared",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./arkiv": "./src/arkiv/index.js",
+    "./commitment": "./src/commitment.js",
+    "./work-capsule": "./src/work-capsule.js",
+    "./procurement": "./src/procurement.js"
+  },
+  "scripts": {
+    "check": "node --check ./src/arkiv/domain.js && node --check ./src/arkiv/query.js && node --check ./src/arkiv/ownership.js && node --check ./src/commitment.js && node --check ./src/work-capsule.js && node --check ./src/procurement.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@arkiv-network/sdk": "0.8.0",
+    "viem": "2.56.3"
+  }
+}

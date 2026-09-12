@@ -5,9 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build"
+    "build": "vite build",
+    "check": "node --check ./src/specification.js && node --check ./src/deliverable.js && node --check ./src/swarm-smoke.js",
+    "test": "node --test"
   },
   "dependencies": {
+    "@shadowbid/shared": "0.0.0",
     "@snaha/swarm-id": "^0.4.1"
   },
   "devDependencies": {

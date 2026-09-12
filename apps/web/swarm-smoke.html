@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ShadowBid Swarm ID Smoke</title>
+  <title>ShadowBid Specification</title>
   <style>
     :root {
       color: #17211b;
@@ -36,6 +36,12 @@
     dt { font-weight: 700; }
     dd { margin: 0; overflow-wrap: anywhere; }
 
+    pre {
+      overflow: auto;
+      padding: 1rem;
+      background: #f4f7f5;
+    }
+
     .actions {
       display: flex;
       gap: 0.75rem;
@@ -59,28 +65,53 @@
 </head>
 <body>
   <main>
-    <h1>Swarm ID smoke</h1>
-    <p>Minimal browser-only identity, upload, and retrieval check.</p>
+    <h1>ShadowBid specification</h1>
+    <p>Canonical specification upload and verification through Swarm ID.</p>
 
     <dl aria-live="polite">
       <dt>Connected identity</dt>
       <dd id="identity">Initializing…</dd>
       <dt>canUpload</dt>
       <dd id="can-upload">false</dd>
-      <dt>Upload reference</dt>
+      <dt>Specification bytes</dt>
+      <dd id="byte-length">—</dd>
+      <dt>Specification hash</dt>
+      <dd id="specification-hash">—</dd>
+      <dt>Specification ref</dt>
       <dd id="reference">—</dd>
       <dt>Retrieval result</dt>
-      <dd id="retrieval">—</dd>
-      <dt>Equality</dt>
-      <dd id="equality">—</dd>
+      <dd id="retrieval-result">—</dd>
+      <dt>Byte equality</dt>
+      <dd id="byte-equality">—</dd>
+      <dt>Retrieved hash</dt>
+      <dd id="retrieved-hash">—</dd>
+      <dt>Hash equality</dt>
+      <dd id="hash-equality">—</dd>
+      <dt>Deliverable bytes</dt>
+      <dd id="deliverable-byte-length">—</dd>
+      <dt>Deliverable hash</dt>
+      <dd id="deliverable-hash">—</dd>
+      <dt>Deliverable ref</dt>
+      <dd id="deliverable-reference">—</dd>
+      <dt>Deliverable retrieval</dt>
+      <dd id="deliverable-retrieval">—</dd>
+      <dt>Deliverable byte equality</dt>
+      <dd id="deliverable-byte-equality">—</dd>
+      <dt>Deliverable retrieved hash</dt>
+      <dd id="deliverable-retrieved-hash">—</dd>
+      <dt>Deliverable hash equality</dt>
+      <dd id="deliverable-hash-equality">—</dd>
       <dt>Status</dt>
       <dd id="status">INITIALIZING</dd>
     </dl>
 
     <div class="actions">
       <button id="connect" type="button" disabled>Connect Swarm ID</button>
-      <button id="upload" type="button" disabled>Upload smoke</button>
+      <button id="upload" type="button" disabled>Run Slice 3C</button>
     </div>
+
+    <h2>Final Work Capsule v1</h2>
+    <pre id="work-capsule">Not created</pre>
 
     <div id="swarm-id-container"></div>
   </main>
