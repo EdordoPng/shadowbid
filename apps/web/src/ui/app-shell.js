@@ -9,6 +9,7 @@ import { createWorkStorage } from '../application/work-storage.js';
 import { createPublicWorkReader, SWARM_GATEWAY } from '../application/swarm-reader.js';
 import { prepareRequest, submitRequestAttempt } from '../application/create-request.js';
 import {
+  findAwardedProcurementForSeller,
   loadRfqDetail,
   prepareAwardAttempt,
   prepareQuoteAttempt,
@@ -47,6 +48,7 @@ let walletSession, provider;
 let requestAttempt, requestBusy = false, requestCompleted = false;
 let nextPage, marketVersion = 0, marketBlock, marketClockBusy = false;
 let rfq, rfqVersion = 0, rfqClockBusy = false, rfqRefreshScheduled = false;
+let sellerAwardedProcurementId;
 let selectedQuoteId, quoteAttempt, quoteBusy = false, awardAttempt, awardBusy = false, awardConfirmed = false;
 let expiredQuotes = new Map();
 let workspace, workspaceVersion = 0, fundingBusy = false, fundingResult;
@@ -358,10 +360,36 @@ function renderQuoteRows() {
 function renderRoleActions() {
   const connected = Boolean(walletSession);
   const isBuyer = connected && walletSession.owner.toLowerCase() === rfq.buyer.toLowerCase();
+  const awarded = connected && !isBuyer && Boolean(sellerAwardedProcurementId);
   $('rfq-connect-panel').hidden = connected;
-  $('seller-quote-panel').hidden = !connected || isBuyer;
+  $('seller-awarded-panel').hidden = !awarded;
+  if (awarded) $('open-seller-workspace').href = `#procurement/${sellerAwardedProcurementId}`;
+  $('seller-quote-panel').hidden = !connected || isBuyer || awarded;
   $('buyer-award-panel').hidden = !isBuyer;
   renderQuoteRows();
+}
+
+/** Award ownership is read live from Arkiv (the durable source of truth),
+ * never inferred from local browser state — this is a real query, not a
+ * localStorage lookup. Stale-guarded against rfq/wallet changing mid-flight. */
+async function refreshSellerAwardedProcurement() {
+  const currentRfqId = rfq?.rfqId;
+  const owner = walletSession?.owner;
+  const isBuyer = owner && owner.toLowerCase() === rfq?.buyer.toLowerCase();
+  if (!currentRfqId || !owner || isBuyer) {
+    sellerAwardedProcurementId = undefined;
+    renderRoleActions();
+    return;
+  }
+  try {
+    const awardId = await findAwardedProcurementForSeller({ arkivPublicClient, rfqId: currentRfqId, seller: owner });
+    if (route().key !== 'rfq' || rfq?.rfqId !== currentRfqId || walletSession?.owner !== owner) return;
+    sellerAwardedProcurementId = awardId;
+  } catch {
+    if (route().key !== 'rfq' || rfq?.rfqId !== currentRfqId || walletSession?.owner !== owner) return;
+    sellerAwardedProcurementId = undefined;
+  }
+  renderRoleActions();
 }
 
 function renderRfq() {
@@ -383,10 +411,12 @@ function renderRfq() {
   renderConstraints();
   renderExpiredQuotes();
   renderRoleActions();
+  refreshSellerAwardedProcurement();
 }
 
 async function loadRfq(rfqId, { preserveExpired = false } = {}) {
   const version = ++rfqVersion;
+  sellerAwardedProcurementId = undefined;
   if (!preserveExpired) {
     expiredQuotes = new Map();
     selectedQuoteId = undefined;
@@ -686,7 +716,7 @@ function invalidateWallet() {
   walletSession = undefined;
   $('connect-wallet').textContent = 'Connect wallet';
   message('wallet-note', 'Wallet changed. Reconnect before publishing.');
-  if (route().key === 'rfq' && rfq) renderRoleActions();
+  if (route().key === 'rfq' && rfq) refreshSellerAwardedProcurement();
   if (route().key === 'workspace' && workspace && !fundingBusy) renderWorkspace();
 }
 
@@ -705,7 +735,7 @@ $('connect-wallet').addEventListener('click', async () => {
     $('connect-wallet').title = walletSession.owner;
     message('wallet-note', 'Wallet connected');
     if (route().key === 'market') loadMarket();
-    if (route().key === 'rfq' && rfq) renderRoleActions();
+    if (route().key === 'rfq' && rfq) refreshSellerAwardedProcurement();
     if (route().key === 'workspace' && workspace) renderWorkspace();
   } catch {
     invalidateWallet();

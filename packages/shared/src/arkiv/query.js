@@ -1,4 +1,4 @@
-import { bytes32, str, u64, u256 } from "@arkiv-network/sdk/attr";
+import { addr, bytes32, str, u64, u256 } from "@arkiv-network/sdk/attr";
 import { and, eq, lte } from "@arkiv-network/sdk/query";
 
 import {
@@ -119,4 +119,27 @@ export function createAwardByIdQuery(publicClient, criteria, { limit = 1 } = {})
 
 export function queryAwardById(publicClient, criteria, options) {
   return createAwardByIdQuery(publicClient, criteria, options).fetch();
+}
+
+/** Lets a Seller discover their own Award for a given RFQ directly from
+ * Arkiv (the durable source of truth for award ownership) without knowing
+ * the awardId in advance — e.g. to navigate from RFQ Detail to the
+ * Procurement Workspace after winning. */
+export function buildAwardByRfqAndSellerPredicate({ rfqId, seller }) {
+  return and(
+    eq("entity_type", str(ENTITY_TYPE.AWARD)),
+    eq("rfq_id", bytes32(assertApplicationId(rfqId, "rfqId"))),
+    eq("seller", addr(seller)),
+  );
+}
+
+export function createAwardByRfqAndSellerQuery(publicClient, criteria, { limit = 1 } = {}) {
+  return publicClient
+    .select({ key: true, attributes: true })
+    .where(buildAwardByRfqAndSellerPredicate(criteria))
+    .limit(limit);
+}
+
+export function queryAwardByRfqAndSeller(publicClient, criteria, options) {
+  return createAwardByRfqAndSellerQuery(publicClient, criteria, options).fetch();
 }

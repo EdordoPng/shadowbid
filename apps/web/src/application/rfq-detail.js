@@ -1,5 +1,5 @@
 import { ExpirationTime } from '@arkiv-network/sdk';
-import { queryAwardById } from '@shadowbid/shared/arkiv';
+import { queryAwardById, queryAwardByRfqAndSeller } from '@shadowbid/shared/arkiv';
 import { createBuyerAward, discoverEligibleQuotes, generateAwardId } from '../buyer-award.js';
 import { generateQuoteId, publishSellerQuote } from '../seller-quote.js';
 import { readBackBuyerRequest } from '../buyer-request.js';
@@ -108,6 +108,18 @@ export function prepareAwardAttempt(rfq, quote) {
     }),
     result: undefined,
   };
+}
+
+/**
+ * Discovers the real Award (if any) that names `seller` as the winning
+ * Seller for `rfqId`, read live from Arkiv — the durable source of truth
+ * for award ownership, never inferred from local browser state. Returns
+ * the awardId, or undefined if this Seller has not won an Award here.
+ */
+export async function findAwardedProcurementForSeller({ arkivPublicClient, rfqId, seller }) {
+  const page = await queryAwardByRfqAndSeller(arkivPublicClient, { rfqId, seller });
+  const entity = page.entities[0];
+  return entity ? entity.attributes.award_id.value : undefined;
 }
 
 export async function submitAwardAttempt(attempt, { buyerArkivWriter, arkivPublicClient }) {

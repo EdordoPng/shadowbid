@@ -3,6 +3,7 @@ import test from 'node:test';
 import { buildOpenQuotePredicate, buildQuoteCreateParameters, buildRfqCreateParameters } from '@shadowbid/shared/arkiv';
 import { ExpirationTime } from '@arkiv-network/sdk';
 import {
+  findAwardedProcurementForSeller,
   loadRfqDetail,
   prepareAwardAttempt,
   prepareQuoteAttempt,
@@ -11,8 +12,10 @@ import {
 
 const RFQ_ID = `0x${'11'.repeat(32)}`;
 const QUOTE_ID = `0x${'22'.repeat(32)}`;
+const AWARD_ID = `0x${'33'.repeat(32)}`;
 const BUYER = '0x490b01048Af9878434727daF2C3291D2ff8a67B0';
 const SELLER = '0x4A643d1340F779e5A58a5413eD8908F7e8DC519E';
+const OTHER_SELLER = '0xEAAD2aaC9cdFE74F45F95C74E87b981561BcEbaC';
 
 function entityType(predicate) {
   return predicate.expressions.find(expression => expression.name === 'entity_type').value.value;
@@ -97,6 +100,55 @@ test('Quote preparation enforces the real RFQ budget and ETA before delegating t
   assert.equal(calls[0].rfqId, RFQ_ID);
   assert.equal(calls[0].price, 250_000n);
   assert.equal(result.quoteId, attempt.quoteId);
+});
+
+function awardLookupPredicateFields(predicate) {
+  const rfqId = predicate.expressions.find(e => e.name === 'rfq_id').value.value;
+  const seller = predicate.expressions.find(e => e.name === 'seller').value.value;
+  return { rfqId, seller };
+}
+
+function awardLookupClient(awardEntity) {
+  return {
+    select() {
+      let predicate;
+      return {
+        where(value) { predicate = value; return this; },
+        limit() { return this; },
+        async fetch() {
+          if (!awardEntity) return { entities: [] };
+          const { rfqId, seller } = awardLookupPredicateFields(predicate);
+          const matches = rfqId === awardEntity.attributes.rfq_id.value
+            && seller.toLowerCase() === awardEntity.attributes.seller.value.toLowerCase();
+          return { entities: matches ? [awardEntity] : [] };
+        },
+      };
+    },
+  };
+}
+
+test('A) Seller with an Award for this RFQ is discovered by rfq_id + seller, exposing the real awardId', async () => {
+  const awardEntity = { key: 'award-key', attributes: {
+    award_id: { value: AWARD_ID }, rfq_id: { value: RFQ_ID }, seller: { value: SELLER },
+  } };
+  const client = awardLookupClient(awardEntity);
+  const awardId = await findAwardedProcurementForSeller({ arkivPublicClient: client, rfqId: RFQ_ID, seller: SELLER });
+  assert.equal(awardId, AWARD_ID);
+});
+
+test('B) A different connected Seller (no Award of their own for this RFQ) gets no procurement CTA', async () => {
+  const awardEntity = { key: 'award-key', attributes: {
+    award_id: { value: AWARD_ID }, rfq_id: { value: RFQ_ID }, seller: { value: SELLER },
+  } };
+  const client = awardLookupClient(awardEntity);
+  const awardId = await findAwardedProcurementForSeller({ arkivPublicClient: client, rfqId: RFQ_ID, seller: OTHER_SELLER });
+  assert.equal(awardId, undefined);
+});
+
+test('C) No Award exists for this RFQ at all — current RFQ Detail behavior is unchanged', async () => {
+  const client = awardLookupClient(undefined);
+  const awardId = await findAwardedProcurementForSeller({ arkivPublicClient: client, rfqId: RFQ_ID, seller: SELLER });
+  assert.equal(awardId, undefined);
 });
 
 test('Award preparation retains a separate awardId and only accepts a Quote in current eligible results', () => {
