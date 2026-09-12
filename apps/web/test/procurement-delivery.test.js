@@ -4,8 +4,10 @@ import { createProcurementContext, AVALANCHE_ESCROW_STATE } from '@shadowbid/sha
 import { deriveTermsHash } from '@shadowbid/shared/commitment';
 import {
   buildDeliveryHandoffQuery,
+  deliverableStateLabel,
   fetchDeliverableForDownload,
   importDeliveryHandoffLink,
+  isSpecificationVerified,
   loadDeliverySession,
   parseDeliveryHandoffQuery,
   prepareDelivery,
@@ -243,4 +245,26 @@ test('fetchDeliverableForDownload refuses to expose bytes that fail hash re-veri
   const delivery = await delivered();
   const swarmClient = { async downloadData() { return Uint8Array.of(0xba, 0xd0); } };
   await assert.rejects(fetchDeliverableForDownload({ delivery, swarmClient }), /integrity verification/);
+});
+
+test('A) SETTLED + expired RFQ + no deliveryRecord never claims verified specification or a retrieved deliverable', () => {
+  const base = workspace(AVALANCHE_ESCROW_STATE.RELEASED);
+  const expiredRfqWorkspace = { ...base, rfq: undefined };
+  assert.equal(workspaceStatusWithDelivery(expiredRfqWorkspace, undefined), 'SETTLED');
+  assert.equal(isSpecificationVerified(expiredRfqWorkspace), false);
+  assert.equal(deliverableStateLabel(expiredRfqWorkspace, undefined), 'Delivery metadata unavailable');
+});
+
+test('B) SETTLED + a real local deliveryRecord with Buyer retrieval shows Retrieved & Accepted and real deliverable proof', async () => {
+  const base = workspace(AVALANCHE_ESCROW_STATE.RELEASED);
+  const delivery = await delivered();
+  const retrieved = await retrieveProcurementDeliverable({
+    workspace: base, delivery, buyer: BUYER,
+    swarmClient: { async downloadData() { return new Uint8Array(delivery.uploadedDeliverable.deliverableBytes); } },
+  });
+  assert.equal(retrieved.retrievedByBuyer, true);
+  assert.equal(deliverableStateLabel(base, retrieved), 'Retrieved & Accepted');
+  // The real ref/hash backing the Verified -> Swarm Deliverable proof row.
+  assert.ok(retrieved.uploadedDeliverable.deliverableRef);
+  assert.ok(retrieved.uploadedDeliverable.deliverableHash);
 });

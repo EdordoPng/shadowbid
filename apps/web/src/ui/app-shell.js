@@ -24,8 +24,10 @@ import {
 import { fundProcurement, loadProcurementWorkspace } from '../application/procurement-workspace.js';
 import {
   buildDeliveryHandoffQuery,
+  deliverableStateLabel,
   fetchDeliverableForDownload,
   importDeliveryHandoffLink,
+  isSpecificationVerified,
   loadDeliverySession,
   parseDeliveryHandoffQuery,
   prepareDelivery,
@@ -446,9 +448,7 @@ function renderWorkspace() {
   $('workspace-award-ref').textContent = workspace.award.awardId;
   $('workspace-spec-state').textContent = !workspace.rfq ? RFQ_EXPIRED_NOTE : (workspace.rfq.specificationRef ? 'Stored' : 'Unavailable');
   $('workspace-spec-ref').textContent = workspace.rfq?.specificationRef || 'No reference';
-  $('workspace-deliverable-state').textContent = settled
-    ? 'Retrieved & Accepted'
-    : retrieved ? 'Retrieved from Swarm' : delivered ? 'Available' : 'Not submitted';
+  $('workspace-deliverable-state').textContent = deliverableStateLabel(workspace, deliveryRecord);
   for (const id of ['workspace-deliverable-name-row', 'workspace-deliverable-ref-row', 'workspace-deliverable-hash-row']) $(id).hidden = !delivered;
   if (delivered) {
     $('workspace-deliverable-name').textContent = deliveryRecord.fileName;
@@ -460,11 +460,15 @@ function renderWorkspace() {
   $('commitment-seller').textContent = workspace.award.seller;
   $('verified-award').textContent = shortAddress(workspace.award.awardId);
   verifiedCopyValues['verified-award'] = workspace.award.awardId;
+  const specificationVerified = isSpecificationVerified(workspace);
+  $('verified-specification-mark').textContent = specificationVerified ? '✓' : '–';
+  $('verified-specification-mark').dataset.state = specificationVerified ? 'verified' : 'unavailable';
   $('verified-specification').textContent = !workspace.rfq
     ? 'Original Request expired'
-    : (workspace.rfq.specificationRef ? shortAddress(workspace.rfq.specificationRef) : 'Reference unavailable');
-  $('specification-proof').hidden = !workspace.rfq?.specificationRef;
-  if (workspace.rfq?.specificationRef) {
+    : (specificationVerified ? shortAddress(workspace.rfq.specificationRef) : 'Reference unavailable');
+  $('specification-proof-actions').hidden = !specificationVerified;
+  $('specification-proof').hidden = !specificationVerified;
+  if (specificationVerified) {
     $('specification-proof').href = `${SWARM_GATEWAY}bytes/${workspace.rfq.specificationRef}`;
     verifiedCopyValues['verified-specification'] = workspace.rfq.specificationRef;
   }

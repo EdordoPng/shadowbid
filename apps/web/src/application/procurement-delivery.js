@@ -282,3 +282,30 @@ export function workspaceStatusWithDelivery(workspace, delivery) {
   if (workspace.context.escrowState === AVALANCHE_ESCROW_STATE.RELEASED) return 'SETTLED';
   return delivery ? 'DELIVERED' : workspace.status;
 }
+
+/**
+ * Economic truth (Fuji RELEASED -> SETTLED) and proof availability (can this
+ * browser/session actually show a real specification reference?) are
+ * separate concepts. A settled escrow proves economic settlement, not that
+ * the ephemeral RFQ's specification is still reconstructable — so a green
+ * Verified check must never be shown without a real reference to back it.
+ */
+export function isSpecificationVerified(workspace) {
+  return Boolean(workspace.rfq?.specificationRef);
+}
+
+/**
+ * The Work Capsule deliverable label must never claim "Retrieved & Accepted"
+ * on the strength of Fuji RELEASED alone: that proves economic settlement,
+ * not that this specific browser/session holds a real, independently
+ * reconstructed delivery record. Only a genuine Buyer retrieval in this
+ * session (retrievedByBuyer === true) earns that label.
+ */
+export function deliverableStateLabel(workspace, delivery) {
+  const settled = workspaceStatusWithDelivery(workspace, delivery) === 'SETTLED';
+  const retrieved = delivery?.retrievedByBuyer === true;
+  if (settled) return retrieved ? 'Retrieved & Accepted' : 'Delivery metadata unavailable';
+  if (retrieved) return 'Retrieved from Swarm';
+  if (delivery) return 'Available';
+  return 'Not submitted';
+}
