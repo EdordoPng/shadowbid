@@ -54,16 +54,16 @@
             <fieldset id="request-fields" class="stack">
               <section class="panel panel-body stack">
                 <header><h2>Request</h2><p class="eyebrow">Public market terms</p><p class="muted caption">These details appear in Market and define which Quotes can match.</p></header>
-                <label>Title<input name="title" required maxlength="200" autocomplete="off"></label>
+                <label>Title<input name="title" required maxlength="200" autocomplete="off" placeholder="Review USDC escrow contract before testnet launch"><span class="caption muted">Name the system and the decision this review should support.</span></label>
                 <label>Service<select name="serviceType"><option value="security_review">Security Review</option></select><span class="caption muted">Currently supported service</span></label>
-                <label>Short description<textarea name="shortDescription" required maxlength="1000" rows="3"></textarea><span class="caption muted">Visible in Market and RFQ detail.</span></label>
-                <label>Required delivery<textarea name="requiredDelivery" required rows="3" placeholder="One requirement per line"></textarea><span class="caption muted">Define the conditions the deliverable must satisfy. One per line.</span></label>
+                <label>Short description<textarea name="shortDescription" required maxlength="1000" rows="3" placeholder="Review a small Solidity escrow before testnet release, focusing on authorization, token accounting and deadline/refund behavior."></textarea><span class="caption muted">Summarize the scope, priorities and release context visible to potential reviewers.</span></label>
+                <label>Required delivery<textarea name="requiredDelivery" required rows="3" placeholder="Findings grouped by severity&#10;Concrete remediation for each issue&#10;Short final summary with release recommendation"></textarea><span class="caption muted">List one concrete deliverable requirement per line.</span></label>
               </section>
               <section class="panel panel-body stack">
                 <h2>Market constraints</h2>
                 <div class="form-columns">
-                  <label>Budget · USDC<input name="budget" required inputmode="decimal" placeholder="0.00"><span class="caption muted">Maximum accepted Quote price</span></label>
-                  <label>Maximum ETA · min<input name="maxEta" required inputmode="numeric"><span class="caption muted">Longest acceptable delivery time</span></label>
+                  <label>Budget · USDC<input name="budget" required inputmode="decimal" placeholder="0.50"><span class="caption muted">Maximum total price accepted for the review</span></label>
+                  <label>Maximum ETA · min<input name="maxEta" required inputmode="numeric" placeholder="60"><span class="caption muted">Longest acceptable time to deliver the completed review</span></label>
                 </div>
                 <label>Request lifetime<select name="lifetime"><option value="15">15 min</option><option value="30" selected>30 min</option><option value="60">1 hour</option><option value="120">2 hours</option></select><span class="caption muted">How long this Request remains open</span></label>
               </section>
@@ -72,7 +72,7 @@
               <section class="panel panel-body stack">
                 <header><h2>Work Capsule</h2><p class="muted">User-owned work data</p></header>
                 <p class="muted caption">Market terms stay queryable. Detailed work data stays in the Work Capsule.</p>
-                <label>Specification<input id="specification-file" type="file" required><span class="caption muted">Upload a UTF-8 text specification (.md or .txt). Its exact bytes are preserved.</span></label>
+                <label>Specification<input id="specification-file" type="file" required><span class="caption muted">Upload a UTF-8 .md or .txt file with contract scope, relevant addresses or interfaces, assumptions and exclusions. Its exact bytes are preserved.</span></label>
                 <p id="specification-note" class="caption muted">Not selected</p>
                 <button id="connect-swarm" class="button" type="button">Connect Swarm ID</button>
                 <p id="swarm-note" class="caption muted" aria-live="polite">Storage · Swarm · Not connected</p>
