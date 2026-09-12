@@ -1,0 +1,16 @@
+{
+  "name": "web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@snaha/swarm-id": "^0.4.1"
+  },
+  "devDependencies": {
+    "vite": "^8.3.0"
+  }
+}
