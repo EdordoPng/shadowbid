@@ -544,8 +544,12 @@ function renderWorkspace() {
     $('delivery-copy').textContent = 'The Buyer retrieved and verified the delivered work.';
   } else if (delivered) {
     message('funding-message', connectedBuyer ? 'Retrieve the deliverable before approval.' : 'The deliverable is available for the Award Buyer.');
-    message('delivery-message', 'Available on Swarm. Approval remains blocked until Buyer retrieval succeeds.');
-    $('delivery-copy').textContent = 'The Seller delivered the work. Retrieve it before approval.';
+    message('delivery-message', connectedSeller
+      ? 'Delivery submitted. The deliverable is available for the Award Buyer.'
+      : 'Available on Swarm. Approval remains blocked until Buyer retrieval succeeds.');
+    $('delivery-copy').textContent = connectedSeller
+      ? 'Delivery submitted.'
+      : 'The Seller delivered the work. Retrieve it before approval.';
   } else if (funded) {
     message('funding-message', connectedSeller ? 'Submit the completed work to the Work Capsule.' : 'Waiting for the Award Seller to submit delivery.');
     message('delivery-message', connectedSeller ? 'Choose the real deliverable file and connect Swarm ID.' : 'Connect the Award Seller to submit delivery.');
