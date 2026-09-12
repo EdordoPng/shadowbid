@@ -25,8 +25,8 @@ function deliveredContext(workspace, uploadedDeliverable, verification) {
     awardId: workspace.award.awardId,
     buyer: workspace.award.buyer,
     seller: workspace.award.seller,
-    specificationRef: workspace.rfq.specificationRef,
-    specificationHash: workspace.rfq.specificationHash,
+    specificationRef: workspace.rfq?.specificationRef,
+    specificationHash: workspace.rfq?.specificationHash,
     escrowState: workspace.context.escrowState,
     uploadedDeliverable,
     verification,
@@ -147,6 +147,9 @@ export async function releaseProcurement({ workspace, delivery, fujiPublicClient
   }
   if (delivery?.retrievedByBuyer !== true || delivery?.buyerVerification?.hashEquality !== true) {
     throw new Error('Retrieve and verify the deliverable before release.');
+  }
+  if (!workspace.commitment) {
+    throw new Error('The original Request is no longer available on Arkiv; the canonical specification required to release this escrow cannot be reconstructed.');
   }
   const result = await releaseAward({
     publicClient: fujiPublicClient,

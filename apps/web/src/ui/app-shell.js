@@ -37,6 +37,7 @@ import {
 } from '../application/procurement-delivery.js';
 
 const $ = id => document.getElementById(id);
+const RFQ_EXPIRED_NOTE = 'Original Request expired from live Arkiv market state.';
 const arkivPublicClient = createMarketClient();
 const fujiPublicClient = createFujiPublicClient();
 const publicWorkReader = createPublicWorkReader();
@@ -429,21 +430,22 @@ function renderWorkspace() {
   const connectedBuyer = walletSession?.owner.toLowerCase() === workspace.award.buyer.toLowerCase();
   const connectedSeller = walletSession?.owner.toLowerCase() === workspace.award.seller.toLowerCase();
   const connectedOther = walletSession && !connectedBuyer && !connectedSeller;
-  $('breadcrumb').textContent = `Market / ${workspace.rfq.rfqId.slice(0, 10)}… / Procurement`;
-  $('page-title').textContent = workspace.rfq.title || 'Procurement';
+  for (const key of Object.keys(verifiedCopyValues)) delete verifiedCopyValues[key];
+  $('breadcrumb').textContent = `Market / ${workspace.award.rfqId.slice(0, 10)}… / Procurement`;
+  $('page-title').textContent = workspace.rfq?.title || 'Procurement';
   $('page-description').textContent = 'Procurement Workspace';
   $('workspace-status').textContent = status;
   $('workspace-status').dataset.tone = funded ? 'positive' : 'accent';
   $('workspace-reference').textContent = workspace.procurementId;
-  $('workspace-supporting').textContent = `${workspace.serviceLabel} · Seller ${shortAddress(workspace.award.seller)} · ${workspace.amountLabel} USDC`;
+  $('workspace-supporting').textContent = `${workspace.serviceLabel ?? RFQ_EXPIRED_NOTE} · Seller ${shortAddress(workspace.award.seller)} · ${workspace.amountLabel} USDC`;
   $('workspace-price').textContent = `${workspace.amountLabel} USDC`;
   $('workspace-delivery').textContent = workspace.quoteEtaMinutes === undefined ? 'Set by Award deadline' : `${workspace.quoteEtaMinutes} min`;
   $('workspace-deadline').textContent = formatDeadline(workspace.award.deadline);
-  $('workspace-service').textContent = workspace.serviceLabel;
+  $('workspace-service').textContent = workspace.serviceLabel ?? RFQ_EXPIRED_NOTE;
   $('workspace-seller').textContent = workspace.award.seller;
   $('workspace-award-ref').textContent = workspace.award.awardId;
-  $('workspace-spec-state').textContent = workspace.rfq.specificationRef ? 'Stored' : 'Unavailable';
-  $('workspace-spec-ref').textContent = workspace.rfq.specificationRef || 'No reference';
+  $('workspace-spec-state').textContent = !workspace.rfq ? RFQ_EXPIRED_NOTE : (workspace.rfq.specificationRef ? 'Stored' : 'Unavailable');
+  $('workspace-spec-ref').textContent = workspace.rfq?.specificationRef || 'No reference';
   $('workspace-deliverable-state').textContent = settled
     ? 'Retrieved & Accepted'
     : retrieved ? 'Retrieved from Swarm' : delivered ? 'Available' : 'Not submitted';
@@ -458,9 +460,11 @@ function renderWorkspace() {
   $('commitment-seller').textContent = workspace.award.seller;
   $('verified-award').textContent = shortAddress(workspace.award.awardId);
   verifiedCopyValues['verified-award'] = workspace.award.awardId;
-  $('verified-specification').textContent = workspace.rfq.specificationRef ? shortAddress(workspace.rfq.specificationRef) : 'Reference unavailable';
-  $('specification-proof').hidden = !workspace.rfq.specificationRef;
-  if (workspace.rfq.specificationRef) {
+  $('verified-specification').textContent = !workspace.rfq
+    ? 'Original Request expired'
+    : (workspace.rfq.specificationRef ? shortAddress(workspace.rfq.specificationRef) : 'Reference unavailable');
+  $('specification-proof').hidden = !workspace.rfq?.specificationRef;
+  if (workspace.rfq?.specificationRef) {
     $('specification-proof').href = `${SWARM_GATEWAY}bytes/${workspace.rfq.specificationRef}`;
     verifiedCopyValues['verified-specification'] = workspace.rfq.specificationRef;
   }
@@ -548,6 +552,10 @@ async function loadWorkspace(awardId, { preserveFunding = false, preserveRelease
   const version = ++workspaceVersion;
   if (!preserveFunding) fundingResult = undefined;
   if (!preserveRelease) releaseResult = undefined;
+  if (!preserveFunding && !preserveRelease && !preserveDelivery) {
+    $('workspace-status').textContent = 'Loading…';
+    delete $('workspace-status').dataset.tone;
+  }
   message('funding-message', 'Loading Award and commitment…');
   try {
     const result = await loadProcurementWorkspace({ arkivPublicClient, fujiPublicClient, awardId });
@@ -576,6 +584,8 @@ async function loadWorkspace(awardId, { preserveFunding = false, preserveRelease
     renderWorkspace();
   } catch (error) {
     if (version !== workspaceVersion) return;
+    $('workspace-status').textContent = 'Error';
+    $('workspace-status').dataset.tone = 'negative';
     message('funding-message', error.message || 'Workspace load failure. Check Arkiv and Fuji, then retry.', true);
   }
 }
