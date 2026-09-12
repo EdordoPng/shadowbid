@@ -177,6 +177,7 @@ function appendRows(rows) {
       span.className = className;
       span.textContent = value;
       if (className.includes('market-countdown')) span.dataset.expiresAtBlock = String(row.expiresAtBlock);
+      if (className.includes('market-status') && value === 'OPEN') span.dataset.tone = 'positive';
       td.append(span);
       tr.append(td);
     }
@@ -188,7 +189,7 @@ function appendRows(rows) {
 
 function marketCompactLimit() {
   const raw = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--market-compact-rows'), 10);
-  return Number.isFinite(raw) && raw > 0 ? raw : 8;
+  return Number.isFinite(raw) && raw > 0 ? raw : 6;
 }
 
 /** Purely presentational row disclosure: every fetched Request stays in the
@@ -227,7 +228,9 @@ function renderMarketCountdowns() {
     const remaining = BigInt(countdown.dataset.expiresAtBlock) - marketBlock;
     if (remaining <= 0n) {
       countdown.textContent = 'Checking…';
-      countdown.closest('tr').querySelector('.market-status').textContent = 'UPDATING';
+      const status = countdown.closest('tr').querySelector('.market-status');
+      status.textContent = 'UPDATING';
+      delete status.dataset.tone;
       expired = true;
     } else countdown.textContent = `≈ ${formatRemainingBlocks(remaining)}`;
   }
@@ -755,6 +758,7 @@ window.addEventListener('resize', () => {
 function invalidateWallet() {
   walletSession = undefined;
   $('connect-wallet').textContent = 'Connect wallet';
+  $('wallet-display').dataset.walletState = 'disconnected';
   message('wallet-note', 'Wallet changed. Reconnect before publishing.');
   if (route().key === 'rfq' && rfq) refreshSellerAwardedProcurement();
   if (route().key === 'workspace' && workspace && !fundingBusy) renderWorkspace();
@@ -773,6 +777,7 @@ $('connect-wallet').addEventListener('click', async () => {
     for (const event of ['accountsChanged', 'chainChanged', 'disconnect']) provider.on?.(event, invalidateWallet);
     $('connect-wallet').textContent = shortAddress(walletSession.owner);
     $('connect-wallet').title = walletSession.owner;
+    $('wallet-display').dataset.walletState = 'connected';
     message('wallet-note', 'Wallet connected');
     if (route().key === 'market') loadMarket();
     if (route().key === 'rfq' && rfq) refreshSellerAwardedProcurement();

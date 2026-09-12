@@ -10,6 +10,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         app: resolve(root, "index.html"),
+        appStandalone: resolve(root, "app.html"),
         swarmSmoke: resolve(root, "swarm-smoke.html"),
         deliverySmoke: resolve(root, "delivery-smoke.html"),
       },

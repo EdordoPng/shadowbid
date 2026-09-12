@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#111418">
+  <link rel="icon" type="image/png" href="/favicon.png" />
+  <link rel="apple-touch-icon" href="/favicon.png" />
+  <title>Market · ShadowBid</title>
+  <link rel="stylesheet" href="/src/ui/theme.css">
+</head>
+<body>
+  <a class="skip-link button" href="#main">Skip to content</a>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="Application sidebar">
+      <a class="brand" href="#market" aria-label="ShadowBid home"><img class="brand-mark" src="/brand/shadowbid-logo.png" alt="" width="28" height="28">ShadowBid</a>
+      <p class="eyebrow nav-label">Workspace</p>
+      <nav class="navigation" aria-label="Main navigation">
+        <a class="nav-link" href="#market" data-page="market" aria-current="page"><span class="nav-symbol" aria-hidden="true">▦</span> Market</a>
+        <a class="nav-link" href="#activity" data-page="activity"><span class="nav-symbol" aria-hidden="true">≡</span> My Activity</a>
+      </nav>
+      <div class="sidebar-footer">
+        <div id="wallet-display" class="wallet-display" data-wallet-state="disconnected" aria-label="Wallet"><button id="connect-wallet" class="button" type="button">Connect wallet</button><p id="wallet-note" class="caption muted" aria-live="polite">Not connected</p></div>
+      </div>
+    </aside>
+    <div class="app-body">
+      <main id="main" class="page stack" tabindex="-1">
+        <div class="page-heading cluster">
+          <div class="stack heading-copy">
+            <p class="eyebrow">ShadowBid / <span id="breadcrumb">Market</span></p>
+            <h1 id="page-title">Market</h1>
+            <p id="page-description" class="muted">Open requests for short-lived digital work.</p>
+          </div>
+          <a id="create-cta" class="button button-primary" href="#create-request">+ Create Request</a>
+        </div>
+        <section id="market-view" class="panel" aria-label="Market requests">
+          <form id="market-filters" class="filters panel-body">
+            <label>Service<select name="serviceType"><option value="">All services</option><option value="security_review">Security Review</option></select></label>
+            <label>Max budget · USDC<input name="maxBudget" inputmode="decimal" placeholder="Any budget" aria-label="Max budget in USDC"></label>
+            <label>Max ETA · min<input name="maxEta" inputmode="numeric" placeholder="Any ETA" aria-label="Max ETA in minutes"></label>
+            <label class="checkbox-label"><input name="openOnly" type="checkbox" checked>Open only</label>
+            <button class="button" type="submit">Apply filters</button>
+            <button id="refresh-market" class="button" type="button">Refresh</button>
+          </form>
+          <p id="market-message" class="market-summary muted" role="status">Loading requests…</p>
+          <div id="market-table" class="table-scroll" hidden>
+            <table><caption class="sr-only">Requests discovered on the live market</caption><thead><tr><th>Request</th><th>Service</th><th>Budget</th><th>Max ETA</th><th>Quotes</th><th>Closes in</th><th>Status</th></tr></thead><tbody id="market-rows"></tbody></table>
+          </div>
+          <div class="market-controls"><button id="market-show-more" class="button" type="button" hidden aria-expanded="false"></button></div>
+          <div class="market-controls"><button id="load-more" class="button" type="button" hidden>Load more</button></div>
+        </section>
+        <section id="create-view" hidden>
+          <form id="request-form" class="request-grid">
+            <fieldset id="request-fields" class="stack">
+              <section class="panel panel-body stack">
+                <header><h2>Request</h2><p class="eyebrow">Public market terms</p><p class="muted caption">These details appear in Market and define which Quotes can match.</p></header>
+                <label>Title<input name="title" required maxlength="200" autocomplete="off"></label>
+                <label>Service<select name="serviceType"><option value="security_review">Security Review</option></select><span class="caption muted">Currently supported service</span></label>
+                <label>Short description<textarea name="shortDescription" required maxlength="1000" rows="3"></textarea><span class="caption muted">Visible in Market and RFQ detail.</span></label>
+                <label>Required delivery<textarea name="requiredDelivery" required rows="3" placeholder="One requirement per line"></textarea><span class="caption muted">Define the conditions the deliverable must satisfy. One per line.</span></label>
+              </section>
+              <section class="panel panel-body stack">
+                <h2>Market constraints</h2>
+                <div class="form-columns">
+                  <label>Budget · USDC<input name="budget" required inputmode="decimal" placeholder="0.00"><span class="caption muted">Maximum accepted Quote price</span></label>
+                  <label>Maximum ETA · min<input name="maxEta" required inputmode="numeric"><span class="caption muted">Longest acceptable delivery time</span></label>
+                </div>
+                <label>Request lifetime<select name="lifetime"><option value="15">15 min</option><option value="30" selected>30 min</option><option value="60">1 hour</option><option value="120">2 hours</option></select><span class="caption muted">How long this Request remains open</span></label>
+              </section>
+            </fieldset>
+            <div class="stack">
+              <section class="panel panel-body stack">
+                <header><h2>Work Capsule</h2><p class="muted">User-owned work data</p></header>
+                <p class="muted caption">Market terms stay queryable. Detailed work data stays in the Work Capsule.</p>
+                <label>Specification<input id="specification-file" type="file" required><span class="caption muted">Upload a UTF-8 text specification (.md or .txt). Its exact bytes are preserved.</span></label>
+                <p id="specification-note" class="caption muted">Not selected</p>
+                <button id="connect-swarm" class="button" type="button">Connect Swarm ID</button>
+                <p id="swarm-note" class="caption muted" aria-live="polite">Storage · Swarm · Not connected</p>
+              </section>
+              <button id="publish-request" class="button button-primary" type="submit">Publish Request</button>
+              <a class="button" href="#market">Cancel</a>
+              <p id="publish-message" role="status">Connect your wallet and Swarm ID before publishing.</p>
+              <p id="attempt-note" class="caption muted" hidden>Keep this tab open to retry the same Request. Terms are locked after the first attempt.</p>
+              <a id="success-market" class="button" href="#market" hidden>Back to Market</a>
+            </div>
+          </form>
+        </section>
+        <section id="rfq-view" class="stack" hidden aria-label="RFQ detail and live Quotes">
+          <section class="panel panel-body stack rfq-summary">
+            <div class="cluster">
+              <span id="rfq-status" class="status-badge" data-tone="positive">OPEN</span>
+              <span id="rfq-reference" class="reference caption muted"></span>
+            </div>
+            <p id="rfq-description" class="rfq-description"></p>
+            <p id="rfq-metadata" class="mono muted"></p>
+            <div class="rfq-context-grid">
+              <div class="stack compact-stack">
+                <h2>Required delivery</h2>
+                <ul id="rfq-requirements" class="requirements"></ul>
+              </div>
+              <div class="work-capsule-cue stack compact-stack">
+                <p class="eyebrow">Work Capsule</p>
+                <h2 id="rfq-specification-title">Specification available</h2>
+                <p id="rfq-specification-ref" class="reference caption muted"></p>
+              </div>
+            </div>
+            <ol class="lifecycle" aria-label="Procurement lifecycle">
+              <li class="complete">Open</li><li class="current">Quotes</li><li>Awarded</li><li>Funded</li><li>Delivery</li><li>Settlement</li>
+            </ol>
+          </section>
+
+          <div class="rfq-detail-grid">
+            <section class="panel" aria-label="Matching Quotes">
+              <header class="panel-header cluster">
+                <div><h2>Matching quotes</h2><p id="quote-count" class="caption muted">Loading eligible offers…</p></div>
+                <span class="caption muted">Live market query · Arkiv</span>
+              </header>
+              <div id="quote-constraints" class="constraint-row panel-body" aria-label="Arkiv query constraints"></div>
+              <p id="quotes-message" class="panel-body muted" role="status">Loading eligible Quotes…</p>
+              <div id="quotes-table" class="table-scroll" hidden>
+                <table><caption class="sr-only">Eligible Quotes returned by the live Arkiv query</caption><thead><tr><th>Seller</th><th>Price</th><th>ETA</th><th>Expires in</th><th>Status</th></tr></thead><tbody id="quote-rows"></tbody></table>
+              </div>
+              <details id="recently-expired" class="recently-expired panel-body" hidden><summary>Recently expired (<span id="expired-count">0</span>)</summary><div id="expired-quotes" class="stack compact-stack"></div></details>
+            </section>
+
+            <aside class="stack" aria-label="RFQ actions">
+              <section id="rfq-connect-panel" class="panel panel-body stack compact-stack">
+                <h2>Connect wallet</h2><p class="caption muted">Connect the account that owns the next action for this Request.</p>
+              </section>
+              <section id="seller-awarded-panel" class="panel panel-body stack compact-stack" hidden>
+                <span class="status-badge" data-tone="positive">AWARDED TO YOU</span>
+                <h2>You won this Request</h2>
+                <p class="caption muted">The Buyer created an Award from your Quote. Continue in the Procurement Workspace to submit delivery.</p>
+                <a id="open-seller-workspace" class="button button-primary" href="#">Open Procurement Workspace</a>
+              </section>
+              <section id="seller-quote-panel" class="panel panel-body stack" hidden>
+                <header><h2>Publish a Quote</h2><p class="caption muted">Your wallet publishes this Seller-owned Quote to Arkiv.</p></header>
+                <form id="quote-form" class="stack">
+                  <fieldset id="quote-fields" class="stack">
+                    <label>Price · USDC<input name="price" required inputmode="decimal" placeholder="0.25"></label>
+                    <label>Delivery ETA · min<input name="eta" required inputmode="numeric" placeholder="10"></label>
+                    <label>Quote lifetime<select name="lifetime"><option value="1">1 min</option><option value="5" selected>5 min</option><option value="15">15 min</option><option value="30">30 min</option><option value="60">1 hour</option></select></label>
+                  </fieldset>
+                  <button id="publish-quote" class="button button-primary" type="submit">Publish Quote</button>
+                  <p id="quote-publish-message" class="caption muted" role="status">Enter terms within this Request’s constraints.</p>
+                </form>
+              </section>
+              <section id="buyer-award-panel" class="panel panel-body stack" hidden>
+                <header><h2>Selected quote</h2><p class="caption muted">The Award freezes the selected commercial terms.</p></header>
+                <div id="selected-quote-empty" class="empty-selection muted">Select an active Quote from the table.</div>
+                <dl id="selected-quote" class="selected-quote" hidden>
+                  <div><dt>Price</dt><dd id="selected-price" class="numeric"></dd></div>
+                  <div><dt>Seller</dt><dd id="selected-seller" class="reference"></dd></div>
+                  <div><dt>Delivery ETA</dt><dd id="selected-eta" class="mono"></dd></div>
+                  <div><dt>Expires in</dt><dd id="selected-expiry" class="mono quote-countdown"></dd></div>
+                  <div><dt>Service</dt><dd id="selected-service"></dd></div>
+                  <div><dt>Asset</dt><dd id="selected-asset" class="mono"></dd></div>
+                  <div><dt>Proposal</dt><dd>Not supplied</dd></div>
+                </dl>
+                <button id="create-award" class="button button-primary" type="button" disabled>Create Award</button>
+                <p id="award-message" class="caption muted" role="status">Select a valid Quote to continue.</p>
+                <div id="award-created" class="award-created stack compact-stack" hidden><span class="status-badge" data-tone="positive">AWARD CREATED</span><p id="award-reference" class="reference caption"></p><a id="open-workspace" class="button" href="#">Open Procurement Workspace</a></div>
+              </section>
+            </aside>
+          </div>
+        </section>
+        <section id="workspace-view" class="stack" hidden aria-label="Procurement Workspace">
+          <section class="panel panel-body stack workspace-summary">
+            <div class="cluster"><span id="workspace-status" class="status-badge">Loading…</span><span id="workspace-reference" class="reference caption muted"></span></div>
+            <p id="workspace-supporting" class="mono muted"></p>
+            <ol id="workspace-lifecycle" class="lifecycle" aria-label="Procurement lifecycle">
+              <li class="complete">Open</li><li class="complete">Quotes</li><li data-stage="awarded" class="current">Awarded</li><li data-stage="funded">Funded</li><li>Delivery</li><li>Settlement</li>
+            </ol>
+          </section>
+          <div class="workspace-grid">
+            <div class="stack">
+              <section class="panel">
+                <header class="panel-header cluster"><div><h2>Award</h2><p class="caption muted">Selected commercial terms</p></div><span class="caption muted">Arkiv</span></header>
+                <dl class="workspace-facts panel-body">
+                  <div><dt>Price</dt><dd id="workspace-price" class="numeric"></dd></div>
+                  <div><dt>Delivery</dt><dd id="workspace-delivery" class="mono"></dd></div>
+                  <div><dt>Deadline</dt><dd id="workspace-deadline" class="mono"></dd></div>
+                  <div><dt>Service</dt><dd id="workspace-service"></dd></div>
+                  <div><dt>Seller</dt><dd id="workspace-seller" class="reference"></dd></div>
+                  <div class="full"><dt>Award ref</dt><dd id="workspace-award-ref" class="reference"></dd></div>
+                </dl>
+              </section>
+              <section class="panel">
+                <header class="panel-header cluster"><div><h2>Work Capsule</h2><p class="caption muted">User-owned work data</p></div><span class="caption muted">Swarm</span></header>
+                <dl class="workspace-list panel-body">
+                  <div><dt>Specification</dt><dd id="workspace-spec-state">Stored</dd></div>
+                  <div><dt>Reference</dt><dd id="workspace-spec-ref" class="reference"></dd></div>
+                  <div><dt>Proposal</dt><dd>Not supplied</dd></div>
+                  <div><dt>Deliverable</dt><dd id="workspace-deliverable-state">Not submitted</dd></div>
+                  <div id="workspace-deliverable-name-row" hidden><dt>File</dt><dd id="workspace-deliverable-name"></dd></div>
+                  <div id="workspace-deliverable-ref-row" hidden><dt>Reference</dt><dd id="workspace-deliverable-ref" class="reference"></dd></div>
+                  <div id="workspace-deliverable-hash-row" hidden><dt>Hash</dt><dd id="workspace-deliverable-hash" class="reference"></dd></div>
+                  <div><dt>Storage</dt><dd>Swarm</dd></div>
+                </dl>
+              </section>
+              <section class="panel panel-body stack compact-stack delivery-panel">
+                <h2>Delivery</h2>
+                <p id="delivery-copy" class="muted">Waiting for the Seller after funding.</p>
+                <div id="seller-delivery-controls" class="stack compact-stack" hidden>
+                  <label>Deliverable<input id="deliverable-file" type="file"><span class="caption muted">Exact file bytes are stored and verified through Swarm.</span></label>
+                  <p id="deliverable-file-note" class="caption muted">Not selected</p>
+                  <button id="connect-delivery-swarm" class="button" type="button">Connect Swarm ID</button>
+                  <p id="delivery-swarm-note" class="caption muted" aria-live="polite">Storage · Swarm · Not connected</p>
+                </div>
+                <p id="delivery-message" class="caption muted" role="status">Delivery becomes available after funding.</p>
+                <div id="deliverable-access" class="stack compact-stack" hidden>
+                  <button id="open-deliverable" class="button" type="button">Open file</button>
+                  <button id="download-deliverable" class="button" type="button">Download</button>
+                  <p class="caption muted">Fetched fresh from Swarm and hash-verified each time — never cached locally.</p>
+                </div>
+                <div id="settlement-receipt" class="settlement-receipt stack compact-stack" hidden>
+                  <strong id="settlement-receipt-amount" class="numeric"></strong>
+                  <span class="caption muted">Market discovered. Work delivered. Commitment settled.</span>
+                </div>
+              </section>
+            </div>
+            <aside class="stack workspace-rail">
+              <section class="panel panel-body stack commitment-card">
+                <header><h2>Commitment</h2><p class="caption muted">Funding turns the Award into an economic commitment.</p></header>
+                <div><p class="caption muted">Amount</p><p id="commitment-amount" class="numeric"></p></div>
+                <dl class="workspace-list compact-list">
+                  <div><dt>Network</dt><dd>Avalanche Fuji</dd></div>
+                  <div><dt>Status</dt><dd id="commitment-status">Awaiting funding</dd></div>
+                  <div><dt>Seller</dt><dd id="commitment-seller" class="reference"></dd></div>
+                </dl>
+                <button id="fund-commitment" class="button button-primary" type="button" hidden>Fund Commitment</button>
+                <button id="submit-delivery" class="button button-primary" type="button" hidden>Submit Delivery</button>
+                <button id="retrieve-deliverable" class="button button-primary" type="button" hidden>Retrieve Deliverable</button>
+                <button id="release-commitment" class="button button-primary" type="button" hidden>Approve &amp; Release</button>
+                <p id="funding-message" class="caption muted" role="status">Connect the Award Buyer to fund.</p>
+              </section>
+              <section class="panel">
+                <header class="panel-header"><h2>Verified</h2></header>
+                <ul class="verified-list panel-body">
+                  <li><span class="verification-mark">✓</span><span><strong>Arkiv Award</strong><small id="verified-award">Award terms read</small><span class="proof-actions"><button class="proof-copy" type="button" data-copy-ref="verified-award">Copy</button></span></span></li>
+                  <li><span id="verified-specification-mark" class="verification-mark">✓</span><span><strong>Swarm Specification</strong><small id="verified-specification">Reference linked</small><span id="specification-proof-actions" class="proof-actions"><button class="proof-copy" type="button" data-copy-ref="verified-specification">Copy</button><a id="specification-proof" class="proof-link" target="_blank" rel="noreferrer" hidden>Open externally ↗</a></span></span></li>
+                  <li id="verified-funding-row" hidden><span class="verification-mark">✓</span><span><strong>Avalanche Funding</strong><small id="verified-funding">Escrow funded</small><span class="proof-actions"><button class="proof-copy" type="button" data-copy-ref="verified-funding">Copy</button><a id="funding-proof" class="proof-link" target="_blank" rel="noreferrer" hidden>Open externally ↗</a></span></span></li>
+                  <li id="verified-deliverable-row" hidden><span class="verification-mark">✓</span><span><strong>Swarm Deliverable</strong><small id="verified-deliverable">Reference verified</small><span class="proof-actions"><button class="proof-copy" type="button" data-copy-ref="verified-deliverable">Copy</button><a id="deliverable-proof" class="proof-link" target="_blank" rel="noreferrer" hidden>Open externally ↗</a></span></span></li>
+                  <li id="verified-settlement-row" hidden><span class="verification-mark">✓</span><span><strong>Avalanche Settlement</strong><small id="verified-settlement">USDC released</small><span class="proof-actions"><button class="proof-copy" type="button" data-copy-ref="verified-settlement">Copy</button><a id="settlement-proof" class="proof-link" target="_blank" rel="noreferrer" hidden>Open externally ↗</a></span></span></li>
+                </ul>
+              </section>
+            </aside>
+          </div>
+        </section>
+        <section id="activity-view" class="panel" hidden><div class="empty-state"><h2>Activity preview</h2><p>Wallet-linked activity is not available in this preview.</p></div></section>
+        <section id="unknown-view" class="panel" hidden><div class="empty-state"><h2>Page unavailable</h2><p>Choose Market or My Activity in the navigation.</p></div></section>
+        <noscript><p class="panel panel-body">JavaScript is required to load requests and connect your wallet.</p></noscript>
+      </main>
+    </div>
+  </div>
+  <div id="swarm-id-container"></div>
+  <script type="module" src="/src/ui/app-shell.js"></script>
+</body>
+</html>
