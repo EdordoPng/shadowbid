@@ -33,9 +33,16 @@ export class DeliveryVerificationError extends Error {
  * retrieval naturally reuses the same uploadedDeliverable (deliverableRef/
  * deliverableHash) without a second upload.
  *
- * Throws DeliveryVerificationError instead of returning a context when
- * either byte or hash equality did not hold — a mismatch can never produce
- * DELIVERED, and no context exists afterwards for any release path to use.
+ * The canonical integrity gate is hashEquality: keccak256 of the exact
+ * retrieved Swarm bytes against deliverableHash. byteEquality (a raw
+ * comparison against uploadedDeliverable.deliverableBytes) is diagnostic
+ * only — it is meaningful when the original bytes genuinely exist in the
+ * same runtime (e.g. the Seller's own upload-time self-check), but a Buyer
+ * verifying from a different session never has them, and none are cached
+ * or manufactured to produce one. Throws DeliveryVerificationError instead
+ * of returning a context when hashEquality did not hold — a mismatch can
+ * never produce DELIVERED, and no context exists afterwards for any release
+ * path to use.
  */
 export function buildDeliveredContext({
   rfqId,
@@ -49,7 +56,7 @@ export function buildDeliveredContext({
   uploadedDeliverable,
   verification,
 }) {
-  if (verification.byteEquality !== true || verification.hashEquality !== true) {
+  if (verification.hashEquality !== true) {
     throw new DeliveryVerificationError("Deliverable retrieval failed integrity verification", {
       deliverableRef: uploadedDeliverable.deliverableRef,
       deliverableHash: uploadedDeliverable.deliverableHash,

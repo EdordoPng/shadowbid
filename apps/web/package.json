@@ -6,12 +6,14 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "check": "node --check ./src/specification.js && node --check ./src/deliverable.js && node --check ./src/swarm-smoke.js && node --check ./src/buyer-request.js && node --check ./src/seller-quote.js && node --check ./src/buyer-award.js && node --check ./src/fund-award.js && node --check ./src/delivery.js && node --check ./src/delivery-smoke.js && node --check ./src/release-award.js",
+    "check": "node --check ./src/application/market.js && node --check ./src/application/buyer-wallet.js && node --check ./src/application/create-request.js && node --check ./src/application/rfq-detail.js && node --check ./src/application/avalanche.js && node --check ./src/application/procurement-workspace.js && node --check ./src/application/procurement-delivery.js && node --check ./src/application/swarm-reader.js && node --check ./src/application/work-storage.js && node --check ./src/ui/app-shell.js && node --check ./src/specification.js && node --check ./src/deliverable.js && node --check ./src/swarm-smoke.js && node --check ./src/buyer-request.js && node --check ./src/seller-quote.js && node --check ./src/buyer-award.js && node --check ./src/fund-award.js && node --check ./src/delivery.js && node --check ./src/delivery-smoke.js && node --check ./src/release-award.js",
     "test": "node --test"
   },
   "dependencies": {
     "@shadowbid/shared": "0.0.0",
-    "@snaha/swarm-id": "^0.4.1"
+    "@snaha/swarm-id": "^0.4.1",
+    "@arkiv-network/sdk": "0.8.0",
+    "viem": "2.56.3"
   },
   "devDependencies": {
     "vite": "^8.3.0"

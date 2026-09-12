@@ -220,13 +220,18 @@ test("approves once when allowance is insufficient, then funds", async () => {
     allowance: 0n,
   });
 
-  const result = await fundAward({ publicClient, walletClient, ...baseArgs() });
+  const stages = [];
+  const result = await fundAward({ publicClient, walletClient, ...baseArgs(), onStage: stage => stages.push(stage) });
 
   assert.deepEqual(calls.write, ["approve", "fund"]);
   assert.equal(result.approveTxHash, "0xapprovetx");
   assert.equal(result.allowanceBefore, 0n);
   assert.equal(result.allowanceAfter, AMOUNT);
   assert.equal(result.fundingTxHash, "0xfundtx");
+  assert.deepEqual(stages, [
+    "Preparing transaction", "Confirm in wallet", "Waiting for Fuji",
+    "Confirm in wallet", "Waiting for Fuji", "Funded",
+  ]);
 });
 
 test("resumes successfully without sending any transaction when already FUNDED with a matching termsHash", async () => {

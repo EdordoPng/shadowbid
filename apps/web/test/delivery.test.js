@@ -123,6 +123,22 @@ test("never derives DELIVERED status from a failed verification (escrow stays ef
   // No context/status was ever produced for a hypothetical release path to consume.
 });
 
+test("builds DELIVERED from hashEquality alone when no original bytes exist in this runtime (cross-context Buyer retrieval)", () => {
+  const uploaded = Object.freeze({
+    deliverableHash: hashWorkBytes(DELIVERABLE),
+    deliverableRef: "ref-1",
+  });
+  const verification = Object.freeze({
+    retrievedBytes: DELIVERABLE,
+    retrievedHash: hashWorkBytes(DELIVERABLE),
+    byteEquality: false,
+    hashEquality: true,
+  });
+
+  const { status } = buildDeliveredContext({ ...baseFields(), uploadedDeliverable: uploaded, verification });
+  assert.equal(status, PROCUREMENT_STATUS.DELIVERED);
+});
+
 test("retrying retrieval reuses the same deliverableRef/deliverableHash without a second upload", async () => {
   const client = fakeSwarmClient();
   const uploaded = await uploadDeliverable(client, DELIVERABLE);

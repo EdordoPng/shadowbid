@@ -93,7 +93,9 @@ export async function fundAward({
   usdcAddress,
   usdcAbi,
   commitment,
+  onStage = () => {},
 }) {
+  onStage("Preparing transaction");
   const buyerAddress = walletClient.account.address;
 
   const stored = await publicClient.readContract({
@@ -112,6 +114,7 @@ export async function fundAward({
       });
     }
 
+    onStage("Funded");
     return Object.freeze({
       procurementId: commitment.procurementId,
       computedTermsHash: commitment.termsHash,
@@ -151,7 +154,9 @@ export async function fundAward({
         functionName: "approve",
         args: [escrowAddress, commitment.amount],
       });
+      onStage("Confirm in wallet");
       approveTxHash = await walletClient.writeContract(simulation.request);
+      onStage("Waiting for Fuji");
       const approveReceipt = await publicClient.waitForTransactionReceipt({ hash: approveTxHash });
       if (approveReceipt.status !== "success") {
         throw new Error("USDC approve transaction reverted");
@@ -190,7 +195,9 @@ export async function fundAward({
         commitment.deadline,
       ],
     });
+    onStage("Confirm in wallet");
     fundingTxHash = await walletClient.writeContract(simulation.request);
+    onStage("Waiting for Fuji");
     fundingReceipt = await publicClient.waitForTransactionReceipt({ hash: fundingTxHash });
     if (fundingReceipt.status !== "success") {
       throw new Error("Fund transaction reverted");
@@ -207,6 +214,7 @@ export async function fundAward({
     blockNumber: fundingReceipt.blockNumber,
   });
 
+  onStage("Funded");
   return Object.freeze({
     procurementId: commitment.procurementId,
     computedTermsHash: commitment.termsHash,

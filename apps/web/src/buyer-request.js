@@ -46,15 +46,21 @@ export async function readBackBuyerRequest({ arkivPublicClient, rfqId }) {
   const entity = await findExistingRfq(arkivPublicClient, rfqId);
   if (!entity) return undefined;
 
-  const { specificationRef, specificationHash } = readRfqPayload(entity);
+  const { title, shortDescription, requiredDelivery, specificationRef, specificationHash } = readRfqPayload(entity);
 
   return Object.freeze({
     rfqId: entity.attributes.rfq_id.value,
     rfqEntityKey: entity.key,
+    title,
+    shortDescription,
+    requiredDelivery,
     buyer: entity.attributes.buyer.value,
+    serviceType: entity.attributes.service_type?.value,
+    settlementAsset: entity.attributes.settlement_asset?.value,
     status: entity.attributes.status.value,
     maxBudget: entity.attributes.max_budget.value,
     maxEtaMinutes: entity.attributes.max_eta_minutes.value,
+    expiresAtBlock: entity.expiresAt,
     specificationRef,
     specificationHash,
   });
@@ -84,6 +90,8 @@ export async function publishBuyerRequest({
   specificationRef,
   specificationHash,
   title,
+  shortDescription,
+  requiredDelivery,
   maxBudget,
   maxEtaMinutes,
   createdAt = BigInt(Math.floor(Date.now() / 1_000)),
@@ -112,6 +120,8 @@ export async function publishBuyerRequest({
             maxEtaMinutes,
             createdAt,
             title,
+            ...(shortDescription === undefined ? {} : { shortDescription }),
+            ...(requiredDelivery === undefined ? {} : { requiredDelivery }),
             expires,
             specificationRef: uploaded.specificationRef,
             specificationHash: uploaded.specificationHash,

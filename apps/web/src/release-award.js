@@ -56,7 +56,9 @@ export async function releaseAward({
   usdcAbi,
   commitment,
   context,
+  onStage = () => {},
 }) {
+  onStage("Preparing transaction");
   assertVerifiedDeliveryBeforeRelease(context);
 
   const stored = await publicClient.readContract({
@@ -68,6 +70,7 @@ export async function releaseAward({
   const state = Number(stored.state);
 
   if (state === AVALANCHE_ESCROW_STATE.RELEASED) {
+    onStage("Settled");
     return Object.freeze({
       procurementId: commitment.procurementId,
       escrowState: state,
@@ -121,7 +124,9 @@ export async function releaseAward({
       functionName: "release",
       args: [commitment.procurementId],
     });
+    onStage("Confirm in wallet");
     releaseTxHash = await walletClient.writeContract(simulation.request);
+    onStage("Waiting for Fuji");
     releaseReceipt = await publicClient.waitForTransactionReceipt({ hash: releaseTxHash });
     if (releaseReceipt.status !== "success") {
       throw new Error("Release transaction reverted");
@@ -148,6 +153,8 @@ export async function releaseAward({
   ]);
 
   const escrowStateAfter = Number(storedAfter.state);
+
+  onStage("Settled");
 
   return Object.freeze({
     procurementId: commitment.procurementId,
