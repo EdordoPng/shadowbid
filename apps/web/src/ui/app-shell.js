@@ -23,6 +23,7 @@ import {
   fujiTransactionUrl,
 } from '../application/avalanche.js';
 import { fundProcurement, loadProcurementWorkspace } from '../application/procurement-workspace.js';
+import { computeMarketDisclosure } from './market-disclosure.js';
 import {
   buildDeliveryHandoffQuery,
   deliverableStateLabel,
@@ -46,7 +47,7 @@ const fujiPublicClient = createFujiPublicClient();
 const publicWorkReader = createPublicWorkReader();
 let walletSession, provider;
 let requestAttempt, requestBusy = false, requestCompleted = false;
-let nextPage, marketVersion = 0, marketBlock, marketClockBusy = false;
+let nextPage, marketVersion = 0, marketBlock, marketClockBusy = false, marketExpanded = false;
 let rfq, rfqVersion = 0, rfqClockBusy = false, rfqRefreshScheduled = false;
 let sellerAwardedProcurementId;
 let selectedQuoteId, quoteAttempt, quoteBusy = false, awardAttempt, awardBusy = false, awardConfirmed = false;
@@ -182,6 +183,31 @@ function appendRows(rows) {
     $('market-rows').append(tr);
   }
   renderMarketCountdowns();
+  applyMarketDisclosure();
+}
+
+function marketCompactLimit() {
+  const raw = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--market-compact-rows'), 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : 8;
+}
+
+/** Purely presentational row disclosure: every fetched Request stays in the
+ * DOM and in Arkiv real pagination state. This only toggles which already-
+ * loaded rows are visible so the default Market view stays compact. */
+function applyMarketDisclosure() {
+  const rows = [...$('market-rows').children];
+  const { visibleCount, hasHidden, buttonLabel } = computeMarketDisclosure({
+    rowCount: rows.length,
+    limit: marketCompactLimit(),
+    expanded: marketExpanded,
+  });
+  rows.forEach((row, index) => { row.hidden = index >= visibleCount; });
+  const button = $('market-show-more');
+  button.hidden = !hasHidden;
+  if (hasHidden) {
+    button.setAttribute('aria-expanded', String(marketExpanded));
+    button.textContent = buttonLabel;
+  }
 }
 
 function formatRemainingBlocks(blocks) {
@@ -231,6 +257,8 @@ async function loadMarket(more = false) {
     $('market-rows').replaceChildren();
     $('market-table').hidden = true;
     $('load-more').hidden = true;
+    $('market-show-more').hidden = true;
+    marketExpanded = false;
     nextPage = undefined;
   }
   message('market-message', 'Loading requests…');
@@ -330,8 +358,8 @@ function renderQuoteRows() {
       tr.setAttribute('aria-label', `Select Quote from ${shortAddress(quote.seller)}`);
     }
     const values = [
-      [shortAddress(quote.seller), 'reference'],
-      [`${quote.priceLabel} USDC`, 'mono'],
+      [shortAddress(quote.seller), 'reference quote-seller'],
+      [`${quote.priceLabel} USDC`, 'mono quote-price'],
       [`${quote.etaMinutes} min`, 'mono'],
       ['', 'mono quote-countdown'],
       ['OPEN', 'status-badge quote-status'],
@@ -657,11 +685,13 @@ function renderQuoteCountdowns() {
       if (selectedQuoteId === quote.quoteId) selectedQuoteId = undefined;
       expired = true;
     } else {
+      const soon = remaining <= 30n;
       countdown.textContent = formatRemainingBlocks(remaining);
+      countdown.classList.toggle('quote-countdown-soon', soon);
       if (row) {
         const status = row.querySelector('.quote-status');
-        status.textContent = remaining <= 30n ? 'EXPIRING SOON' : 'OPEN';
-        status.dataset.tone = remaining <= 30n ? 'caution' : 'positive';
+        status.textContent = soon ? 'EXPIRING SOON' : 'OPEN';
+        status.dataset.tone = soon ? 'caution' : 'positive';
       }
     }
   }
@@ -714,6 +744,13 @@ $('quote-rows').addEventListener('keydown', event => {
 $('market-filters').addEventListener('submit', event => { event.preventDefault(); loadMarket(); });
 $('refresh-market').addEventListener('click', () => loadMarket());
 $('load-more').addEventListener('click', () => loadMarket(true));
+$('market-show-more').addEventListener('click', () => {
+  marketExpanded = !marketExpanded;
+  applyMarketDisclosure();
+});
+window.addEventListener('resize', () => {
+  if (route().key === 'market') applyMarketDisclosure();
+});
 
 function invalidateWallet() {
   walletSession = undefined;

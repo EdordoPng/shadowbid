@@ -31,6 +31,7 @@
   --radius-panel: 0.5rem;
   --sidebar-width: 14rem;
   --content-width: 76rem;
+  --market-compact-rows: 8;
   font-family: var(--font-sans);
   font-size: 16px;
   line-height: 1.5;
@@ -72,9 +73,9 @@ button { font: inherit; }
 .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-3); min-height: 18rem; padding: var(--space-7) var(--space-5); text-align: center; }
 .empty-state p { max-width: 30rem; color: var(--color-muted); font-size: var(--text-sm); }
 .app-shell { display: grid; grid-template-columns: var(--sidebar-width) minmax(0, 1fr); min-height: 100dvh; }
-.sidebar { display: flex; flex-direction: column; padding: var(--space-6) var(--space-4); border-right: 1px solid var(--color-border); background: var(--color-sidebar); }
+.sidebar { display: flex; flex-direction: column; padding: var(--space-6) var(--space-4); border-right: 1px solid var(--color-border); background: var(--color-sidebar); position: sticky; top: 0; height: 100dvh; }
 .brand { display: flex; align-items: center; gap: var(--space-3); font-size: 1.125rem; font-weight: 650; padding: 0 var(--space-2); }
-.brand-mark { display: grid; place-items: center; width: 1.75rem; height: 1.75rem; border: 1px solid var(--color-accent); border-radius: var(--radius-sm); color: var(--color-accent); font-family: var(--font-mono); }
+.brand-mark { display: block; width: 1.5rem; height: 1.5rem; object-fit: contain; flex: 0 0 auto; }
 .nav-label { padding: var(--space-7) var(--space-3) var(--space-3); }
 .navigation { display: flex; flex-direction: column; gap: var(--space-2); }
 .nav-link { display: flex; align-items: center; gap: var(--space-3); min-height: 2.75rem; padding: var(--space-2) var(--space-3); border: 1px solid transparent; border-radius: var(--radius-sm); color: var(--color-muted); font-size: var(--text-sm); }
@@ -87,18 +88,18 @@ button { font: inherit; }
 .heading-copy { gap: var(--space-3); min-width: 0; }
 .page-heading { align-items: flex-end; margin-bottom: var(--space-4); }
 .cta-group { display: flex; flex-direction: column; align-items: flex-end; gap: var(--space-2); }
-.page-footer { padding: var(--space-5) var(--space-6); color: var(--color-muted); font-size: var(--text-xs); border-top: 1px solid var(--color-border); }
 .skip-link { position: fixed; top: var(--space-4); left: var(--space-4); z-index: 2; transform: translateY(-200%); }
 .skip-link:focus { transform: translateY(0); }
+@media (max-height: 820px) { :root { --market-compact-rows: 6; } }
+@media (max-height: 700px) { :root { --market-compact-rows: 4; } }
 @media (max-width: 760px) {
   .app-shell { grid-template-columns: minmax(0, 1fr); }
-  .sidebar { padding: var(--space-4); border-right: 0; border-bottom: 1px solid var(--color-border); gap: var(--space-4); }
+  .sidebar { position: static; height: auto; padding: var(--space-4); border-right: 0; border-bottom: 1px solid var(--color-border); gap: var(--space-4); }
   .navigation { flex-direction: row; }
   .nav-link { flex: 1; }
   .nav-label { display: none; }
   .sidebar-footer { margin-top: 0; padding-top: var(--space-3); }
   h1 { font-size: 1.625rem; }
-  .page-footer { padding: var(--space-4); }
   .page { padding: var(--space-6) var(--space-4); }
   .cta-group { align-items: flex-start; }
 }
@@ -148,6 +149,9 @@ td:not(:first-child) { white-space: nowrap; }
 .quote-row[aria-selected="true"] td { background: rgba(180, 220, 244, 0.08); border-top: 1px solid var(--color-accent); border-bottom-color: var(--color-accent); }
 .quote-row[aria-selected="true"] td:first-child { box-shadow: inset 2px 0 var(--color-accent); }
 .quote-row.expired { opacity: 0.55; }
+.quote-price { font-weight: 700; }
+.quote-seller { color: var(--color-muted); }
+.quote-countdown-soon { color: var(--color-caution); font-weight: 600; }
 .selected-quote { display: grid; gap: var(--space-3); margin: 0; }
 .selected-quote div { display: grid; gap: var(--space-1); padding-bottom: var(--space-3); border-bottom: 1px solid var(--color-border); }
 .selected-quote dt { color: var(--color-muted); font-size: var(--text-xs); }

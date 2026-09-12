@@ -12,7 +12,7 @@
   <a class="skip-link button" href="#main">Skip to content</a>
   <div class="app-shell">
     <aside class="sidebar" aria-label="Application sidebar">
-      <a class="brand" href="#market" aria-label="ShadowBid home"><span class="brand-mark" aria-hidden="true">S</span>ShadowBid</a>
+      <a class="brand" href="#market" aria-label="ShadowBid home"><img class="brand-mark" src="/brand/shadowbid-logo.png" alt="" width="24" height="24">ShadowBid</a>
       <p class="eyebrow nav-label">Workspace</p>
       <nav class="navigation" aria-label="Main navigation">
         <a class="nav-link" href="#market" data-page="market" aria-current="page"><span class="nav-symbol" aria-hidden="true">▦</span> Market</a>
@@ -45,6 +45,7 @@
           <div id="market-table" class="table-scroll" hidden>
             <table><caption class="sr-only">Requests discovered on the live market</caption><thead><tr><th>Request</th><th>Service</th><th>Budget</th><th>Max ETA</th><th>Quotes</th><th>Closes in</th><th>Status</th></tr></thead><tbody id="market-rows"></tbody></table>
           </div>
+          <div class="panel-body"><button id="market-show-more" class="button" type="button" hidden aria-expanded="false"></button></div>
           <div class="panel-body"><button id="load-more" class="button" type="button" hidden>Load more</button></div>
         </section>
         <section id="create-view" hidden>
@@ -249,7 +250,6 @@
         <section id="unknown-view" class="panel" hidden><div class="empty-state"><h2>Page unavailable</h2><p>Choose Market or My Activity in the navigation.</p></div></section>
         <noscript><p class="panel panel-body">JavaScript is required to load requests and connect your wallet.</p></noscript>
       </main>
-      <footer class="page-footer cluster"><span>ShadowBid</span><span>Digital work. Clear commitments.</span></footer>
     </div>
   </div>
   <div id="swarm-id-container"></div>
