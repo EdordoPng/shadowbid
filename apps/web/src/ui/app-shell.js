@@ -6,7 +6,7 @@ import {
 } from '../application/market.js';
 import { connectArkivWallet, assertWalletSession } from '../application/buyer-wallet.js';
 import { createWorkStorage } from '../application/work-storage.js';
-import { createPublicWorkReader } from '../application/swarm-reader.js';
+import { createPublicWorkReader, SWARM_GATEWAY } from '../application/swarm-reader.js';
 import { prepareRequest, submitRequestAttempt } from '../application/create-request.js';
 import {
   loadRfqDetail,
@@ -48,6 +48,7 @@ let selectedQuoteId, quoteAttempt, quoteBusy = false, awardAttempt, awardBusy = 
 let expiredQuotes = new Map();
 let workspace, workspaceVersion = 0, fundingBusy = false, fundingResult;
 let deliverableBlobUrl, deliverableAccessBusy = false;
+const verifiedCopyValues = {};
 let deliveryRecord, deliveryAttempt, deliveryBusy = false, retrievalBusy = false;
 let releaseBusy = false, releaseResult;
 
@@ -456,11 +457,23 @@ function renderWorkspace() {
   $('commitment-status').textContent = settled ? 'Settled' : retrieved ? 'Ready to Release' : funded ? 'FUNDED' : 'Awaiting funding';
   $('commitment-seller').textContent = workspace.award.seller;
   $('verified-award').textContent = shortAddress(workspace.award.awardId);
+  verifiedCopyValues['verified-award'] = workspace.award.awardId;
   $('verified-specification').textContent = workspace.rfq.specificationRef ? shortAddress(workspace.rfq.specificationRef) : 'Reference unavailable';
+  $('specification-proof').hidden = !workspace.rfq.specificationRef;
+  if (workspace.rfq.specificationRef) {
+    $('specification-proof').href = `${SWARM_GATEWAY}bytes/${workspace.rfq.specificationRef}`;
+    verifiedCopyValues['verified-specification'] = workspace.rfq.specificationRef;
+  }
   $('verified-funding-row').hidden = !funded;
   $('verified-deliverable-row').hidden = !delivered;
   $('verified-settlement-row').hidden = !settled;
-  if (delivered) $('verified-deliverable').textContent = `Reference ${shortAddress(deliveryRecord.uploadedDeliverable.deliverableRef)}`;
+  $('deliverable-proof').hidden = !delivered;
+  if (delivered) {
+    const deliverableRef = deliveryRecord.uploadedDeliverable.deliverableRef;
+    $('verified-deliverable').textContent = `Reference ${shortAddress(deliverableRef)}`;
+    $('deliverable-proof').href = `${SWARM_GATEWAY}bytes/${deliverableRef}`;
+    verifiedCopyValues['verified-deliverable'] = deliverableRef;
+  }
   const stages = [...$('workspace-lifecycle').children];
   const currentStage = settled ? 5 : delivered ? 4 : funded ? 3 : 2;
   stages.forEach((stage, index) => { stage.className = index < currentStage ? 'complete' : index === currentStage ? 'current' : ''; });
@@ -510,20 +523,24 @@ function renderWorkspace() {
   }
   if (funded) {
     $('verified-funding').textContent = `Escrow ${shortAddress(workspace.procurementId)} funded`;
+    verifiedCopyValues['verified-funding'] = workspace.procurementId;
   }
   const txHash = fundingResult?.fundingTxHash;
   $('funding-proof').hidden = !txHash;
   if (txHash) {
     $('funding-proof').href = fujiTransactionUrl(txHash);
     $('verified-funding').textContent = `Transaction ${shortAddress(txHash)}`;
+    verifiedCopyValues['verified-funding'] = txHash;
   }
   const releaseTxHash = releaseResult?.releaseTxHash;
   $('settlement-proof').hidden = !releaseTxHash;
   if (releaseTxHash) {
     $('settlement-proof').href = fujiTransactionUrl(releaseTxHash);
     $('verified-settlement').textContent = `Transaction ${shortAddress(releaseTxHash)}`;
+    verifiedCopyValues['verified-settlement'] = releaseTxHash;
   } else if (settled) {
     $('verified-settlement').textContent = `Escrow ${shortAddress(workspace.procurementId)} released`;
+    verifiedCopyValues['verified-settlement'] = workspace.procurementId;
   }
 }
 
@@ -849,6 +866,21 @@ $('fund-commitment').addEventListener('click', async () => {
     fundingBusy = false;
     if (workspace && route().key === 'workspace') renderWorkspace();
   }
+});
+
+document.querySelectorAll('.proof-copy').forEach(button => {
+  button.addEventListener('click', async () => {
+    const value = verifiedCopyValues[button.dataset.copyRef];
+    if (!value) return;
+    const original = button.textContent;
+    try {
+      await navigator.clipboard.writeText(value);
+      button.textContent = 'Copied';
+    } catch {
+      button.textContent = 'Copy failed';
+    }
+    setTimeout(() => { button.textContent = original; }, 1500);
+  });
 });
 
 $('copy-delivery-handoff-link').addEventListener('click', async () => {

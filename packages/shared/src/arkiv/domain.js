@@ -62,6 +62,14 @@ function assertTitle(value) {
   return value;
 }
 
+function assertSpecificationRef(value) {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new TypeError("specificationRef must be a non-empty string");
+  }
+
+  return value;
+}
+
 function requireExpiry(expires) {
   if (expires === undefined || expires === null) {
     throw new TypeError("expires must be supplied using Arkiv ExpirationTime");
@@ -182,12 +190,63 @@ export function mapAwardAttributes(input) {
   });
 }
 
+/**
+ * The Swarm specification linkage travels in the RFQ payload, never as a
+ * query attribute: it is context for reconstructing the request, not a
+ * market fact to filter/sort on. Both fields are optional together (an RFQ
+ * with no specification yet omits both) but never one without the other.
+ */
+function buildRfqPayload(input) {
+  const payload = { title: assertTitle(input.title) };
+  // Optional public presentation fields. Existing RFQ payloads remain unchanged.
+  if (input.shortDescription !== undefined) {
+    if (typeof input.shortDescription !== "string" || input.shortDescription.length > 1000) {
+      throw new TypeError("shortDescription must be a string of at most 1000 characters");
+    }
+    payload.shortDescription = input.shortDescription;
+  }
+  if (input.requiredDelivery !== undefined) {
+    if (!Array.isArray(input.requiredDelivery) || input.requiredDelivery.length > 20 ||
+        input.requiredDelivery.some((item) => typeof item !== "string" || !item.trim() || item.length > 500)) {
+      throw new TypeError("requiredDelivery must contain at most 20 non-empty requirements of at most 500 characters");
+    }
+    payload.requiredDelivery = [...input.requiredDelivery];
+  }
+  const hasRef = input.specificationRef !== undefined;
+  const hasHash = input.specificationHash !== undefined;
+
+  if (hasRef !== hasHash) {
+    throw new TypeError("specificationRef and specificationHash must be provided together");
+  }
+  if (hasRef) {
+    payload.specificationRef = assertSpecificationRef(input.specificationRef);
+    payload.specificationHash = assertApplicationId(input.specificationHash, "specificationHash");
+  }
+
+  return payload;
+}
+
 export function buildRfqCreateParameters(input) {
   return Object.freeze({
     attributes: mapRfqAttributes(input),
-    payload: jsonToPayload({ title: assertTitle(input.title) }),
+    payload: jsonToPayload(buildRfqPayload(input)),
     contentType: JSON_CONTENT_TYPE,
     expires: requireExpiry(input.expires),
+  });
+}
+
+/**
+ * Reads an RFQ's public presentation data and specification linkage.
+ * Requires the entity to have been fetched with its payload selected.
+ */
+export function readRfqPayload(entity) {
+  const payload = entity.toJson();
+  return Object.freeze({
+    title: payload.title,
+    ...(payload.shortDescription === undefined ? {} : { shortDescription: payload.shortDescription }),
+    ...(payload.requiredDelivery === undefined ? {} : { requiredDelivery: payload.requiredDelivery }),
+    specificationRef: payload.specificationRef,
+    specificationHash: payload.specificationHash,
   });
 }
 

@@ -118,7 +118,7 @@ export async function retrieveProcurementDeliverable({ workspace, delivery, swar
     context: delivered.context,
     status: delivered.status,
   });
-  onStage('Retrieved from Swarm');
+  onStage('Deliverable verified');
   return result;
 }
 

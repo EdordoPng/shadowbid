@@ -8,20 +8,33 @@ import {
   assertApplicationId,
   assertDeadline,
   assertMoney,
+  buildAwardByIdPredicate,
   buildAwardCreateParameters,
+  buildActiveQuotesByRfqPredicate,
   buildOpenQuotePredicate,
+  buildQuoteByIdPredicate,
   buildQuoteCreateParameters,
+  buildRfqByIdPredicate,
   buildRfqCreateParameters,
   createBuyerArkivWriter,
+  createActiveQuotesByRfqQuery,
   createOpenQuoteQuery,
   createSellerArkivWriter,
   mapAwardAttributes,
   mapQuoteAttributes,
   mapRfqAttributes,
+  queryAwardById,
+  queryActiveQuotesByRfq,
   queryOpenQuotes,
+  queryQuoteById,
+  queryRfqById,
+  readRfqPayload,
   snapshotSelectedQuote,
   snapshotAward,
 } from "../src/arkiv/index.js";
+
+const SPECIFICATION_REF = "a".repeat(64);
+const SPECIFICATION_HASH = `0x${"66".repeat(32)}`;
 
 const RFQ_ID = `0x${"11".repeat(32)}`;
 const QUOTE_ID = `0x${"22".repeat(32)}`;
@@ -47,7 +60,7 @@ function selectedQuote(overrides = {}) {
   };
 }
 
-test("maps the complete RFQ schema and keeps title as the only payload field", () => {
+test("maps the complete RFQ schema and keeps title as the only payload field when no specification is linked yet", () => {
   const expires = ExpirationTime.fromDays(1);
   const input = {
     rfqId: RFQ_ID,
@@ -78,6 +91,87 @@ test("maps the complete RFQ schema and keeps title as the only payload field", (
   assert.equal(parameters.contentType, "application/json");
   assert.equal(parameters.expires, expires);
   assert.equal("procurement_id" in parameters.attributes, false);
+});
+
+test("carries specificationRef/specificationHash in the RFQ payload only, never as query attributes", () => {
+  const input = {
+    rfqId: RFQ_ID,
+    buyer: BUYER,
+    maxBudget: 500_000n,
+    maxEtaMinutes: 60n,
+    createdAt: CREATED_AT,
+    title: "Review payment contract",
+    expires: ExpirationTime.fromDays(1),
+    specificationRef: SPECIFICATION_REF,
+    specificationHash: SPECIFICATION_HASH,
+  };
+
+  const parameters = buildRfqCreateParameters(input);
+  assert.deepEqual(JSON.parse(new TextDecoder().decode(parameters.payload)), {
+    title: input.title,
+    specificationRef: SPECIFICATION_REF,
+    specificationHash: SPECIFICATION_HASH,
+  });
+  assert.equal("specification_ref" in parameters.attributes, false);
+  assert.equal("specification_hash" in parameters.attributes, false);
+  assert.deepEqual(mapRfqAttributes(input), mapRfqAttributes({ ...input, specificationRef: undefined, specificationHash: undefined }));
+});
+
+test("rejects a specificationRef/specificationHash pair that isn't provided together", () => {
+  const input = {
+    rfqId: RFQ_ID,
+    buyer: BUYER,
+    maxBudget: 500_000n,
+    maxEtaMinutes: 60n,
+    createdAt: CREATED_AT,
+    title: "Review payment contract",
+    expires: ExpirationTime.fromDays(1),
+  };
+
+  assert.throws(
+    () => buildRfqCreateParameters({ ...input, specificationRef: SPECIFICATION_REF }),
+    /must be provided together/,
+  );
+  assert.throws(
+    () => buildRfqCreateParameters({ ...input, specificationHash: SPECIFICATION_HASH }),
+    /must be provided together/,
+  );
+  assert.throws(
+    () => buildRfqCreateParameters({ ...input, specificationRef: "", specificationHash: SPECIFICATION_HASH }),
+    /specificationRef must be a non-empty string/,
+  );
+  assert.throws(
+    () =>
+      buildRfqCreateParameters({
+        ...input,
+        specificationRef: SPECIFICATION_REF,
+        specificationHash: `0x${"AA".repeat(32)}`,
+      }),
+    /specificationHash must be a canonical 32-byte ID/,
+  );
+});
+
+test("reads the RFQ payload back symmetrically, without needing the original publish result", () => {
+  const parameters = buildRfqCreateParameters({
+    rfqId: RFQ_ID,
+    buyer: BUYER,
+    maxBudget: 500_000n,
+    maxEtaMinutes: 60n,
+    createdAt: CREATED_AT,
+    title: "Review payment contract",
+    expires: ExpirationTime.fromDays(1),
+    specificationRef: SPECIFICATION_REF,
+    specificationHash: SPECIFICATION_HASH,
+  });
+  const rereadEntity = {
+    toJson: () => JSON.parse(new TextDecoder().decode(parameters.payload)),
+  };
+
+  assert.deepEqual(readRfqPayload(rereadEntity), {
+    title: "Review payment contract",
+    specificationRef: SPECIFICATION_REF,
+    specificationHash: SPECIFICATION_HASH,
+  });
 });
 
 test("maps the complete Quote schema and passes Arkiv-native expiry through unchanged", () => {
@@ -238,6 +332,179 @@ test("executes the canonical predicate through Arkiv's query builder without JS 
   assert.equal(await queryOpenQuotes(publicClient, criteria), page);
   assert.deepEqual(calls.map(([method]) => method), ["select", "where", "limit", "fetch"]);
   assert.equal(String(calls[1][1]), String(buildOpenQuotePredicate(criteria)));
+});
+
+test("builds and executes the active Quote count query at the RFQ snapshot block", async () => {
+  const predicate = buildActiveQuotesByRfqPredicate({ rfqId: RFQ_ID });
+  assert.equal(
+    String(predicate),
+    `entity_type = str('quote') AND rfq_id = bytes32(${RFQ_ID}) AND status = str('open')`,
+  );
+
+  const page = Object.freeze({ entities: [], blockNumber: 123n });
+  const calls = [];
+  const builder = {
+    where(value) { calls.push(["where", value]); return this; },
+    limit(value) { calls.push(["limit", value]); return this; },
+    atBlock(value) { calls.push(["atBlock", value]); return this; },
+    async fetch() { calls.push(["fetch"]); return page; },
+  };
+  const publicClient = {
+    select(selection) { calls.push(["select", selection]); return builder; },
+  };
+
+  assert.equal(
+    createActiveQuotesByRfqQuery(publicClient, { rfqId: RFQ_ID }, { atBlock: 123n }),
+    builder,
+  );
+  assert.deepEqual(calls.map(([method]) => method), ["select", "where", "limit", "atBlock"]);
+  calls.length = 0;
+  assert.equal(
+    await queryActiveQuotesByRfq(publicClient, { rfqId: RFQ_ID }, { atBlock: 123n }),
+    page,
+  );
+  assert.deepEqual(calls.map(([method]) => method), ["select", "where", "limit", "atBlock", "fetch"]);
+});
+
+test("builds the RFQ-by-id predicate reused to detect an already-published RFQ", () => {
+  const predicate = buildRfqByIdPredicate({ rfqId: RFQ_ID });
+
+  assert.equal(predicate.kind, "and");
+  assert.deepEqual(
+    predicate.expressions.map(({ name, operator, value: typedValue }) => ({
+      name,
+      operator,
+      type: typedValue.type,
+      value: typedValue.value,
+    })),
+    [
+      { name: "entity_type", operator: "=", type: "str", value: "rfq" },
+      { name: "rfq_id", operator: "=", type: "bytes32", value: RFQ_ID },
+    ],
+  );
+});
+
+test("queries an RFQ by id through Arkiv's query builder without JS filtering", async () => {
+  const page = Object.freeze({ entities: [{ key: "0xentity", attributes: {} }] });
+  const calls = [];
+  const builder = {
+    where(predicate) {
+      calls.push(["where", predicate]);
+      return this;
+    },
+    limit(limit) {
+      calls.push(["limit", limit]);
+      return this;
+    },
+    async fetch() {
+      calls.push(["fetch"]);
+      return page;
+    },
+  };
+  const publicClient = {
+    select(selection) {
+      calls.push(["select", selection]);
+      return builder;
+    },
+  };
+
+  assert.equal(await queryRfqById(publicClient, { rfqId: RFQ_ID }), page);
+  assert.deepEqual(calls.map(([method]) => method), ["select", "where", "limit", "fetch"]);
+  assert.deepEqual(calls[2], ["limit", 1]);
+});
+
+test("builds the Quote-by-id predicate reused to detect an already-published Quote", () => {
+  const predicate = buildQuoteByIdPredicate({ quoteId: QUOTE_ID });
+
+  assert.equal(predicate.kind, "and");
+  assert.deepEqual(
+    predicate.expressions.map(({ name, operator, value: typedValue }) => ({
+      name,
+      operator,
+      type: typedValue.type,
+      value: typedValue.value,
+    })),
+    [
+      { name: "entity_type", operator: "=", type: "str", value: "quote" },
+      { name: "quote_id", operator: "=", type: "bytes32", value: QUOTE_ID },
+    ],
+  );
+});
+
+test("queries a Quote by id through Arkiv's query builder without JS filtering", async () => {
+  const page = Object.freeze({ entities: [{ key: "0xquote-entity", attributes: {} }] });
+  const calls = [];
+  const builder = {
+    where(predicate) {
+      calls.push(["where", predicate]);
+      return this;
+    },
+    limit(limit) {
+      calls.push(["limit", limit]);
+      return this;
+    },
+    async fetch() {
+      calls.push(["fetch"]);
+      return page;
+    },
+  };
+  const publicClient = {
+    select(selection) {
+      calls.push(["select", selection]);
+      return builder;
+    },
+  };
+
+  assert.equal(await queryQuoteById(publicClient, { quoteId: QUOTE_ID }), page);
+  assert.deepEqual(calls.map(([method]) => method), ["select", "where", "limit", "fetch"]);
+  assert.deepEqual(calls[2], ["limit", 1]);
+});
+
+test("builds the Award-by-id predicate reused to detect an already-created Award", () => {
+  const predicate = buildAwardByIdPredicate({ awardId: AWARD_ID });
+
+  assert.equal(predicate.kind, "and");
+  assert.deepEqual(
+    predicate.expressions.map(({ name, operator, value: typedValue }) => ({
+      name,
+      operator,
+      type: typedValue.type,
+      value: typedValue.value,
+    })),
+    [
+      { name: "entity_type", operator: "=", type: "str", value: "award" },
+      { name: "award_id", operator: "=", type: "bytes32", value: AWARD_ID },
+    ],
+  );
+});
+
+test("queries an Award by id through Arkiv's query builder without JS filtering", async () => {
+  const page = Object.freeze({ entities: [] });
+  const calls = [];
+  const builder = {
+    where(predicate) {
+      calls.push(["where", predicate]);
+      return this;
+    },
+    limit(limit) {
+      calls.push(["limit", limit]);
+      return this;
+    },
+    async fetch() {
+      calls.push(["fetch"]);
+      return page;
+    },
+  };
+  const publicClient = {
+    select(selection) {
+      calls.push(["select", selection]);
+      return builder;
+    },
+  };
+
+  assert.equal(await queryAwardById(publicClient, { awardId: AWARD_ID }), page);
+  assert.deepEqual(calls.map(([method]) => method), ["select", "where", "limit", "fetch"]);
+  assert.deepEqual(calls[2], ["limit", 1]);
 });
 
 test("freezes Award commercial fields from the selected Quote", () => {
