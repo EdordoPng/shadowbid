@@ -1,11 +1,17 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { buildRfqCreateParameters, readRfqPayload, createBuyerArkivWriter } from '@shadowbid/shared/arkiv';
 import { hashWorkBytes } from '@shadowbid/shared/work-capsule';
 import { ExpirationTime } from '@arkiv-network/sdk';
 import { buildMarketPredicate, discoverMarketRequests, parseBudget, parseEta } from '../src/application/market.js';
 import { prepareRequest, submitRequestAttempt } from '../src/application/create-request.js';
-import { assertBuyerSession, connectBuyerWallet } from '../src/application/buyer-wallet.js';
+import {
+  assertBuyerSession,
+  connectBuyerWallet,
+  createWalletAttemptGuard,
+  restoreArkivWallet,
+} from '../src/application/buyer-wallet.js';
 import { arkivChain } from '../src/application/market.js';
 const buyer = '0x490b01048Af9878434727daF2C3291D2ff8a67B0';
 const otherBuyer = '0xEAAD2aaC9cdFE74F45F95C74E87b981561BcEbaC';
@@ -169,6 +175,67 @@ test('browser wallet composition accepts only a real authorized account on the c
   assert.deepEqual(methods, ['eth_requestAccounts', 'eth_chainId', 'eth_accounts', 'eth_chainId']);
   await assert.rejects(assertBuyerSession({ request: async ({ method }) => method === 'eth_chainId' ? '0x1' : [buyer] }, buyer), /network/);
   await assert.rejects(assertBuyerSession({ request: async ({ method }) => method === 'eth_chainId' ? '0x1' : [] }, buyer), /account changed/);
+});
+
+test('silent wallet restoration uses authorized accounts without requesting access', async () => {
+  const methods = [];
+  const provider = { async request({ method }) {
+    methods.push(method);
+    if (method === 'eth_accounts') return [buyer.toLowerCase()];
+    if (method === 'eth_chainId') return `0x${arkivChain.id.toString(16)}`;
+    throw new Error(`Unexpected method ${method}`);
+  } };
+  const restored = await restoreArkivWallet(provider);
+  assert.equal(restored.owner, buyer);
+  assert.equal(typeof restored.createRfq, 'function');
+  assert.equal(typeof restored.createQuote, 'function');
+  assert.equal(typeof restored.createAward, 'function');
+  assert.deepEqual(methods.sort(), ['eth_accounts', 'eth_chainId']);
+  assert.ok(!methods.includes('eth_requestAccounts'));
+});
+
+test('silent wallet restoration stays disconnected without an account or on the wrong chain', async () => {
+  for (const { accounts, chain } of [
+    { accounts: [], chain: arkivChain.id },
+    { accounts: [buyer], chain: 1 },
+  ]) {
+    const methods = [];
+    const provider = { async request({ method }) {
+      methods.push(method);
+      return method === 'eth_accounts' ? accounts : `0x${chain.toString(16)}`;
+    } };
+    assert.equal(await restoreArkivWallet(provider), undefined);
+    assert.deepEqual(methods.sort(), ['eth_accounts', 'eth_chainId']);
+    assert.ok(!methods.some(method => method.startsWith('wallet_') || method === 'eth_requestAccounts'));
+  }
+});
+
+test('silent wallet restoration surfaces provider errors without requesting access', async () => {
+  const methods = [];
+  const provider = { async request({ method }) { methods.push(method); throw new Error('Provider unavailable'); } };
+  await assert.rejects(restoreArkivWallet(provider), /Provider unavailable/);
+  assert.ok(!methods.includes('eth_requestAccounts'));
+});
+
+test('wallet attempt guard rejects event-invalidated restores and lets explicit Connect win', () => {
+  const provider = {};
+  const guard = createWalletAttemptGuard();
+  const invalidatedRestore = guard.begin(provider);
+  guard.invalidate();
+  assert.equal(guard.isCurrent(invalidatedRestore, provider), false);
+
+  const startupRestore = guard.begin(provider);
+  const explicitConnect = guard.begin(provider);
+  assert.equal(guard.isCurrent(startupRestore, provider), false);
+  assert.equal(guard.isCurrent(explicitConnect, provider), true);
+  assert.equal(guard.isCurrent(explicitConnect, {}), false);
+});
+
+test('successful startup hydration updates the wallet and refreshes the active route', async () => {
+  const source = await readFile(new URL('../src/ui/app-shell.js', import.meta.url), 'utf8');
+  const restoreFlow = source.slice(source.indexOf('async function restoreWallet'), source.indexOf("$('connect-wallet').addEventListener", source.indexOf('async function restoreWallet')));
+  assert.match(restoreFlow, /showConnectedWallet\(restored\);\s*refreshWalletRoute\(\);/);
+  assert.match(restoreFlow, /catch \{[\s\S]*showDisconnectedWallet\('Wallet restoration unavailable\./);
 });
 
 test('non-UTF-8 files are rejected before storage without altering the frozen text path', () => {

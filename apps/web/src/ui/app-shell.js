@@ -4,7 +4,12 @@ import {
   discoverMarketRequests,
   readMarketBlock,
 } from '../application/market.js';
-import { connectArkivWallet, assertWalletSession } from '../application/buyer-wallet.js';
+import {
+  assertWalletSession,
+  connectArkivWallet,
+  createWalletAttemptGuard,
+  restoreArkivWallet,
+} from '../application/buyer-wallet.js';
 import { createWorkStorage } from '../application/work-storage.js';
 import { createPublicWorkReader, SWARM_GATEWAY } from '../application/swarm-reader.js';
 import { prepareRequest, submitRequestAttempt } from '../application/create-request.js';
@@ -49,6 +54,7 @@ const arkivPublicClient = createMarketClient();
 const fujiPublicClient = createFujiPublicClient();
 const publicWorkReader = createPublicWorkReader();
 let walletSession, provider;
+const walletAttempts = createWalletAttemptGuard();
 let requestAttempt, requestBusy = false, requestCompleted = false;
 let nextPage, marketVersion = 0, marketBlock, marketClockBusy = false, marketExpanded = false;
 let activityNextPage, activityVersion = 0, activityBlock, activityClockBusy = false;
@@ -961,36 +967,79 @@ window.addEventListener('resize', () => {
   if (route().key === 'market') applyMarketDisclosure();
 });
 
-function invalidateWallet() {
+function refreshWalletRoute() {
+  if (route().key === 'market') loadMarket();
+  if (route().key === 'activity') loadActivity();
+  if (route().key === 'rfq' && rfq) refreshSellerAwardedProcurement();
+  if (route().key === 'workspace' && workspace) renderWorkspace();
+}
+
+function showConnectedWallet(session) {
+  walletSession = session;
+  $('connect-wallet').textContent = shortAddress(session.owner);
+  $('connect-wallet').title = session.owner;
+  $('wallet-display').dataset.walletState = 'connected';
+  message('wallet-note', 'Wallet connected');
+}
+
+function showDisconnectedWallet(note, error = false) {
   walletSession = undefined;
   $('connect-wallet').textContent = 'Connect wallet';
+  $('connect-wallet').removeAttribute('title');
   $('wallet-display').dataset.walletState = 'disconnected';
-  message('wallet-note', 'Wallet changed. Reconnect before publishing.');
+  message('wallet-note', note, error);
+}
+
+function listenToWalletProvider(nextProvider) {
+  if (provider?.removeListener) {
+    for (const event of ['accountsChanged', 'chainChanged', 'disconnect']) provider.removeListener(event, invalidateWallet);
+  }
+  provider = nextProvider;
+  for (const event of ['accountsChanged', 'chainChanged', 'disconnect']) provider?.on?.(event, invalidateWallet);
+}
+
+function invalidateWallet() {
+  walletAttempts.invalidate();
+  showDisconnectedWallet('Wallet changed. Reconnect before publishing.');
   if (route().key === 'activity') loadActivity();
   if (route().key === 'rfq' && rfq) refreshSellerAwardedProcurement();
   if (route().key === 'workspace' && workspace && !fundingBusy) renderWorkspace();
 }
 
+async function restoreWallet(nextProvider) {
+  const attempt = walletAttempts.begin(nextProvider);
+  listenToWalletProvider(nextProvider);
+  try {
+    const restored = await restoreArkivWallet(nextProvider);
+    if (!walletAttempts.isCurrent(attempt, provider)) return;
+    if (!restored) {
+      showDisconnectedWallet('Not connected to the Arkiv request network.');
+      return;
+    }
+    showConnectedWallet(restored);
+    refreshWalletRoute();
+  } catch {
+    if (!walletAttempts.isCurrent(attempt, provider)) return;
+    showDisconnectedWallet('Wallet restoration unavailable. Connect wallet to continue.', true);
+  }
+}
+
 $('connect-wallet').addEventListener('click', async () => {
   $('connect-wallet').disabled = true;
+  const nextProvider = window.ethereum;
+  const attempt = walletAttempts.begin(nextProvider);
   try {
     if (provider?.removeListener) {
-      provider.removeListener('accountsChanged', invalidateWallet);
-      provider.removeListener('chainChanged', invalidateWallet);
-      provider.removeListener('disconnect', invalidateWallet);
+      for (const event of ['accountsChanged', 'chainChanged', 'disconnect']) provider.removeListener(event, invalidateWallet);
     }
-    provider = window.ethereum;
-    walletSession = await connectArkivWallet(provider);
-    for (const event of ['accountsChanged', 'chainChanged', 'disconnect']) provider.on?.(event, invalidateWallet);
-    $('connect-wallet').textContent = shortAddress(walletSession.owner);
-    $('connect-wallet').title = walletSession.owner;
-    $('wallet-display').dataset.walletState = 'connected';
-    message('wallet-note', 'Wallet connected');
-    if (route().key === 'market') loadMarket();
-    if (route().key === 'activity') loadActivity();
-    if (route().key === 'rfq' && rfq) refreshSellerAwardedProcurement();
-    if (route().key === 'workspace' && workspace) renderWorkspace();
+    provider = nextProvider;
+    const connected = await connectArkivWallet(nextProvider);
+    if (!walletAttempts.isCurrent(attempt, provider)) return;
+    listenToWalletProvider(nextProvider);
+    showConnectedWallet(connected);
+    refreshWalletRoute();
   } catch {
+    if (!walletAttempts.isCurrent(attempt, provider)) return;
     invalidateWallet();
     message('wallet-note', 'Wallet unavailable or connection declined. Connect an EVM browser wallet and approve the request network.', true);
   } finally {
@@ -1401,6 +1450,11 @@ window.addEventListener('hashchange', () => renderPage({ focus: true }));
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) pollDeliveryReceipt();
 });
+function initializeWallet() {
+  if (!provider && window.ethereum) void restoreWallet(window.ethereum);
+}
+if (window.ethereum) initializeWallet();
+else window.addEventListener('ethereum#initialized', initializeWallet, { once: true });
 setInterval(() => {
   syncMarketClock();
   syncActivityClock();
