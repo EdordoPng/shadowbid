@@ -1,6 +1,6 @@
 import { createPublicClient } from '@arkiv-network/sdk';
 import { tiramisu } from '@arkiv-network/sdk/chains';
-import { str, u64, u256 } from '@arkiv-network/sdk/attr';
+import { addr, str, u64, u256 } from '@arkiv-network/sdk/attr';
 import { and, eq, lte } from '@arkiv-network/sdk/query';
 import { http, formatUnits, parseUnits } from 'viem';
 import {
@@ -34,9 +34,10 @@ export function parseEta(value) {
   return minutes;
 }
 export function formatBudget(value) { return formatUnits(value, 6); }
-export function buildMarketPredicate({ serviceType = '', maxBudget = '', maxEta = '', openOnly = true } = {}) {
+export function buildMarketPredicate({ serviceType = '', maxBudget = '', maxEta = '', openOnly = true, buyer = '' } = {}) {
   if (serviceType !== '' && serviceType !== SERVICE_TYPE) throw new TypeError('Unsupported service.');
   const clauses = [eq('entity_type', str(ENTITY_TYPE.RFQ)), eq('settlement_asset', str(SETTLEMENT_ASSET))];
+  if (buyer) clauses.push(eq('buyer', addr(buyer)));
   if (serviceType) clauses.push(eq('service_type', str(serviceType)));
   if (maxBudget !== '') clauses.push(lte('max_budget', u256(parseBudget(maxBudget))));
   if (maxEta !== '') clauses.push(lte('max_eta_minutes', u64(parseEta(maxEta))));

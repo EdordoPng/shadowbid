@@ -257,7 +257,14 @@
             </aside>
           </div>
         </section>
-        <section id="activity-view" class="panel" hidden><div class="empty-state"><h2>Activity preview</h2><p>Wallet-linked activity is not available in this preview.</p></div></section>
+        <section id="activity-view" class="panel" hidden aria-label="My active Buyer Requests">
+          <header class="panel-header cluster"><div><h2>Buyer Requests</h2><p class="caption muted">Still-live Requests owned by the connected wallet</p></div><span class="caption muted">Arkiv</span></header>
+          <p id="activity-message" class="market-summary muted" role="status">Connect your wallet to view your Requests.</p>
+          <div id="activity-table" class="table-scroll" hidden>
+            <table><caption class="sr-only">Active Requests owned by the connected Buyer</caption><thead><tr><th>Request</th><th>Service</th><th>Budget</th><th>Max ETA</th><th>Expires in</th><th>Status</th></tr></thead><tbody id="activity-rows"></tbody></table>
+          </div>
+          <div class="market-controls"><button id="activity-load-more" class="button" type="button" hidden>Load more</button></div>
+        </section>
         <section id="unknown-view" class="panel" hidden><div class="empty-state"><h2>Page unavailable</h2><p>Choose Market or My Activity in the navigation.</p></div></section>
         <noscript><p class="panel panel-body">JavaScript is required to load requests and connect your wallet.</p></noscript>
       </main>

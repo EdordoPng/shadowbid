@@ -8,6 +8,7 @@ import { prepareRequest, submitRequestAttempt } from '../src/application/create-
 import { assertBuyerSession, connectBuyerWallet } from '../src/application/buyer-wallet.js';
 import { arkivChain } from '../src/application/market.js';
 const buyer = '0x490b01048Af9878434727daF2C3291D2ff8a67B0';
+const otherBuyer = '0xEAAD2aaC9cdFE74F45F95C74E87b981561BcEbaC';
 const fields = { title: 'Review payment contract', serviceType: 'security_review', shortDescription: 'Review security', requiredDelivery: 'Identify vulnerabilities\nRecommend fixes', budget: '0.123456', maxEta: '30', lifetime: '30' };
 const bytes = Uint8Array.of(239, 187, 191, 65, 13, 10, 32, 195, 169);
 function scenario({ storageFail = false, publicationFail = false, readbackMissing = false } = {}) {
@@ -84,12 +85,68 @@ test('Market delegates all filters to Arkiv and follows native pagination', asyn
   assert.deepEqual(calls[1], buildMarketPredicate(filters));
   const serialized = JSON.stringify(calls[1], (_, v) => typeof v === 'bigint' ? String(v) : v);
   for (const name of ['entity_type', 'settlement_asset', 'service_type', 'max_budget', 'max_eta_minutes', 'status']) assert.ok(serialized.includes(name));
+  assert.equal(calls[1].expressions.some(expression => expression.name === 'buyer'), false);
   assert.equal(page.rows[0].title, '<script>not HTML</script>');
   assert.equal(page.rows[0].activeQuotes, 3);
   assert.equal(page.rows[0].expiresAtBlock, 120n);
   assert.equal(page.rows[0].snapshotBlock, 100n);
   assert.deepEqual((await page.next()).rows, []);
   assert.ok(!JSON.stringify(buildMarketPredicate({ openOnly: false })).includes('status'));
+});
+
+test('optional Buyer filter is included in the Arkiv RFQ predicate', () => {
+  const predicate = buildMarketPredicate({ buyer, openOnly: true });
+  const buyerClause = predicate.expressions.find(expression => expression.name === 'buyer');
+  assert.equal(buyerClause.operator, '=');
+  assert.equal(buyerClause.value.type, 'addr');
+  assert.equal(buyerClause.value.value.toLowerCase(), buyer.toLowerCase());
+});
+
+function buyerDiscoveryClient(rawPages) {
+  return {
+    select(selection) {
+      const quoteCount = selection.key === true && Object.keys(selection).length === 1;
+      let predicate;
+      return {
+        where(value) { predicate = value; return this; },
+        limit() { return this; },
+        atBlock() { return this; },
+        async fetch() {
+          if (quoteCount) return { entities: [], blockNumber: 100n, hasNextPage: () => false };
+          const expectedBuyer = predicate.expressions.find(expression => expression.name === 'buyer')?.value.value;
+          const pages = rawPages.map(entities => entities.filter(entity => !expectedBuyer || entity.attributes.buyer.value.toLowerCase() === expectedBuyer.toLowerCase()));
+          const pageAt = index => ({
+            entities: pages[index],
+            blockNumber: 100n,
+            hasNextPage: () => index + 1 < pages.length,
+            next: async () => pageAt(index + 1),
+          });
+          return pageAt(0);
+        },
+      };
+    },
+  };
+}
+
+function activityRfq(owner, suffix, title) {
+  const attempt = prepareRequest(fields, bytes, owner);
+  const parameters = buildRfqCreateParameters({ ...attempt.terms, rfqId: `0x${suffix.repeat(64)}`, buyer: owner, createdAt: 1n });
+  return { expiresAt: 120n, attributes: parameters.attributes, toJson: () => ({ title }) };
+}
+
+test('Buyer RFQ discovery excludes other Buyers and preserves Arkiv pagination', async () => {
+  const firstOwned = activityRfq(buyer, '1', 'First owned Request');
+  const wrongBuyer = activityRfq(otherBuyer, '2', 'Another Buyer Request');
+  const secondOwned = activityRfq(buyer, '3', 'Second owned Request');
+  const page = await discoverMarketRequests(buyerDiscoveryClient([[firstOwned, wrongBuyer], [secondOwned]]), { buyer, openOnly: true });
+  assert.deepEqual(page.rows.map(row => row.title), ['First owned Request']);
+  assert.deepEqual((await page.next()).rows.map(row => row.title), ['Second owned Request']);
+});
+
+test('Buyer RFQ discovery handles an empty Arkiv result', async () => {
+  const page = await discoverMarketRequests(buyerDiscoveryClient([[activityRfq(otherBuyer, '4', 'Not owned')]]), { buyer, openOnly: true });
+  assert.deepEqual(page.rows, []);
+  assert.equal(page.next, undefined);
 });
 
 test('Market never projects an RFQ whose authoritative Arkiv expiry has passed', async () => {

@@ -51,6 +51,7 @@ const publicWorkReader = createPublicWorkReader();
 let walletSession, provider;
 let requestAttempt, requestBusy = false, requestCompleted = false;
 let nextPage, marketVersion = 0, marketBlock, marketClockBusy = false, marketExpanded = false;
+let activityNextPage, activityVersion = 0, activityBlock, activityClockBusy = false;
 let rfq, rfqVersion = 0, rfqClockBusy = false, rfqRefreshScheduled = false;
 let sellerAwardedProcurementId;
 let selectedQuoteId, quoteAttempt, quoteBusy = false, awardAttempt, awardBusy = false, awardConfirmed = false;
@@ -67,7 +68,7 @@ let bidAcceptedAnimationTimer;
 const pages = {
   market: ['Market', 'Open requests for short-lived digital work.'],
   'create-request': ['Create Request', 'Define the work, market constraints and request lifetime.'],
-  activity: ['My Activity', 'Your Requests, Quotes and active procurements.'],
+  activity: ['My Activity', 'Your active Buyer Requests.'],
 };
 
 function message(id, text, error = false) {
@@ -159,6 +160,7 @@ function renderPage({ focus = false } = {}) {
   document.title = `${page[0]} · ShadowBid`;
   if (focus) $('main').focus();
   if (current.key === 'market') loadMarket();
+  if (current.key === 'activity') loadActivity();
   if (current.key === 'create-request') resetCompletedRequest();
   if (current.key === 'rfq') loadRfq(current.rfqId);
   if (current.key === 'workspace') loadWorkspace(current.awardId);
@@ -317,6 +319,103 @@ async function loadMarket(more = false) {
     message('market-message', 'Market load failure. Check your connection and filters, then Refresh.', true);
   } finally {
     if (version === marketVersion) $('load-more').disabled = false;
+  }
+}
+
+function appendActivityRows(rows) {
+  for (const row of rows) {
+    const tr = document.createElement('tr');
+    const title = document.createElement('td');
+    const link = document.createElement('a');
+    link.className = 'market-request-link';
+    link.href = `#rfq/${row.rfqId}`;
+    const strong = document.createElement('strong');
+    strong.textContent = row.title;
+    const reference = document.createElement('span');
+    reference.className = 'caption reference';
+    reference.textContent = shortAddress(row.rfqId);
+    link.append(strong, reference);
+    title.append(link);
+    tr.append(title);
+    for (const [value, className] of [
+      [row.service, ''],
+      [`${row.budget} USDC`, 'mono'],
+      [`${row.maxEta} min`, 'mono'],
+      ['', 'mono activity-countdown'],
+      [row.status, 'status-badge'],
+    ]) {
+      const td = document.createElement('td');
+      const span = document.createElement('span');
+      span.className = className;
+      span.textContent = value;
+      if (className.includes('activity-countdown')) span.dataset.expiresAtBlock = String(row.expiresAtBlock);
+      if (className.includes('status-badge') && value === 'OPEN') span.dataset.tone = 'positive';
+      td.append(span);
+      tr.append(td);
+    }
+    $('activity-rows').append(tr);
+  }
+  renderActivityCountdowns();
+}
+
+function renderActivityCountdowns() {
+  if (activityBlock === undefined) return false;
+  let expired = false;
+  for (const countdown of document.querySelectorAll('.activity-countdown')) {
+    const remaining = BigInt(countdown.dataset.expiresAtBlock) - activityBlock;
+    if (remaining <= 0n) expired = true;
+    else countdown.textContent = `≈ ${formatRemainingBlocks(remaining)}`;
+  }
+  return expired;
+}
+
+async function syncActivityClock() {
+  if (activityClockBusy || route().key !== 'activity' || !walletSession) return;
+  activityClockBusy = true;
+  let expired = false;
+  try {
+    activityBlock = await readMarketBlock(arkivPublicClient);
+    expired = renderActivityCountdowns();
+  } catch {
+    // Keep the last Arkiv snapshot visible until the next refresh.
+  } finally {
+    activityClockBusy = false;
+  }
+  if (expired) loadActivity();
+}
+
+async function loadActivity(more = false) {
+  const version = ++activityVersion;
+  const buyer = walletSession?.owner;
+  const next = more ? activityNextPage : undefined;
+  $('activity-load-more').disabled = true;
+  if (!more) {
+    $('activity-rows').replaceChildren();
+    $('activity-table').hidden = true;
+    $('activity-load-more').hidden = true;
+    activityNextPage = undefined;
+  }
+  if (!buyer) {
+    message('activity-message', 'Connect your wallet to view your Requests.');
+    $('activity-load-more').disabled = false;
+    return;
+  }
+  message('activity-message', more ? 'Loading more Requests…' : 'Loading your Requests…');
+  try {
+    const page = next ? await next() : await discoverMarketRequests(arkivPublicClient, { buyer, openOnly: true });
+    if (version !== activityVersion || route().key !== 'activity' || walletSession?.owner.toLowerCase() !== buyer.toLowerCase()) return;
+    activityBlock = page.snapshotBlock;
+    appendActivityRows(page.rows);
+    activityNextPage = page.next;
+    const count = $('activity-rows').children.length;
+    $('activity-table').hidden = count === 0;
+    $('activity-load-more').hidden = !activityNextPage;
+    message('activity-message', count ? `${count} active Requests · Live Arkiv state` : 'No active Requests.');
+  } catch {
+    if (version !== activityVersion) return;
+    message('activity-message', 'Activity load failure. Check your connection and retry.', true);
+  } finally {
+    if (version === activityVersion) $('activity-load-more').disabled = false;
   }
 }
 
@@ -853,6 +952,7 @@ $('quote-rows').addEventListener('keydown', event => {
 $('market-filters').addEventListener('submit', event => { event.preventDefault(); loadMarket(); });
 $('refresh-market').addEventListener('click', () => loadMarket());
 $('load-more').addEventListener('click', () => loadMarket(true));
+$('activity-load-more').addEventListener('click', () => loadActivity(true));
 $('market-show-more').addEventListener('click', () => {
   marketExpanded = !marketExpanded;
   applyMarketDisclosure();
@@ -866,6 +966,7 @@ function invalidateWallet() {
   $('connect-wallet').textContent = 'Connect wallet';
   $('wallet-display').dataset.walletState = 'disconnected';
   message('wallet-note', 'Wallet changed. Reconnect before publishing.');
+  if (route().key === 'activity') loadActivity();
   if (route().key === 'rfq' && rfq) refreshSellerAwardedProcurement();
   if (route().key === 'workspace' && workspace && !fundingBusy) renderWorkspace();
 }
@@ -886,6 +987,7 @@ $('connect-wallet').addEventListener('click', async () => {
     $('wallet-display').dataset.walletState = 'connected';
     message('wallet-note', 'Wallet connected');
     if (route().key === 'market') loadMarket();
+    if (route().key === 'activity') loadActivity();
     if (route().key === 'rfq' && rfq) refreshSellerAwardedProcurement();
     if (route().key === 'workspace' && workspace) renderWorkspace();
   } catch {
@@ -1301,6 +1403,7 @@ document.addEventListener('visibilitychange', () => {
 });
 setInterval(() => {
   syncMarketClock();
+  syncActivityClock();
   syncRfqClock();
 }, ARKIV_BLOCK_TIME_SECONDS * 1000);
 renderPage();
