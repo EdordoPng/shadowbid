@@ -4,6 +4,7 @@ import {
   buildAwardCreateParameters,
   buildQuoteCreateParameters,
   buildRfqCreateParameters,
+  buildDeliveryReceiptCreateParameters,
 } from "./domain.js";
 
 function requireOwnedWallet(walletClient, owner, role) {
@@ -46,5 +47,7 @@ export function createSellerArkivWriter({ walletClient, seller }) {
     owner,
     createQuote: (input) =>
       walletClient.createEntity(buildQuoteCreateParameters({ ...input, seller: owner })),
+    createDeliveryReceipt: (input) =>
+      walletClient.createEntity(buildDeliveryReceiptCreateParameters({ ...input, seller: owner })),
   });
 }

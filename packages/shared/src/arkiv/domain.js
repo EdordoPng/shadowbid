@@ -5,6 +5,7 @@ export const ENTITY_TYPE = Object.freeze({
   RFQ: "rfq",
   QUOTE: "quote",
   AWARD: "award",
+  DELIVERY_RECEIPT: "delivery_receipt",
 });
 
 export const SERVICE_TYPE = "security_review";
@@ -18,6 +19,7 @@ export const ENTITY_STATUS = Object.freeze({
 const EMPTY_CONTENT_TYPE = "application/octet-stream";
 const JSON_CONTENT_TYPE = "application/json";
 const APPLICATION_ID_PATTERN = /^0x[0-9a-f]{64}$/;
+const SWARM_REFERENCE_PATTERN = /^[0-9a-f]{16,128}$/;
 
 export function assertApplicationId(value, fieldName = "applicationId") {
   if (typeof value !== "string" || !APPLICATION_ID_PATTERN.test(value)) {
@@ -76,6 +78,33 @@ function requireExpiry(expires) {
   }
 
   return expires;
+}
+
+function assertDeliveryReceiptPayload(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw new TypeError("delivery receipt payload must be an object");
+  }
+  const keys = Object.keys(input).sort();
+  const expectedKeys = ["deliverableHash", "deliverableRef", "fileName", "mediaType"];
+  if (keys.length !== expectedKeys.length || keys.some((key, index) => key !== expectedKeys[index])) {
+    throw new TypeError("delivery receipt payload must contain only deliverableRef, deliverableHash, fileName, and mediaType");
+  }
+  if (typeof input.deliverableRef !== "string" || !SWARM_REFERENCE_PATTERN.test(input.deliverableRef)) {
+    throw new TypeError("deliverableRef must be a lowercase hexadecimal Swarm reference");
+  }
+  assertApplicationId(input.deliverableHash, "deliverableHash");
+  if (typeof input.fileName !== "string" || !input.fileName.trim() || input.fileName.length > 255) {
+    throw new TypeError("fileName must be a non-empty string of at most 255 characters");
+  }
+  if (typeof input.mediaType !== "string" || !input.mediaType.trim() || input.mediaType.length > 255) {
+    throw new TypeError("mediaType must be a non-empty string of at most 255 characters");
+  }
+  return Object.freeze({
+    deliverableRef: input.deliverableRef,
+    deliverableHash: input.deliverableHash,
+    fileName: input.fileName,
+    mediaType: input.mediaType,
+  });
 }
 
 export function mapRfqAttributes({
@@ -190,6 +219,15 @@ export function mapAwardAttributes(input) {
   });
 }
 
+export function mapDeliveryReceiptAttributes({ awardId, seller, createdAt }) {
+  return Object.freeze({
+    entity_type: str(ENTITY_TYPE.DELIVERY_RECEIPT),
+    award_id: bytes32(assertApplicationId(awardId, "awardId")),
+    seller: addr(seller),
+    created_at: u64(assertUnsignedInteger(createdAt, "createdAt")),
+  });
+}
+
 /**
  * The Swarm specification linkage travels in the RFQ payload, never as a
  * query attribute: it is context for reconstructing the request, not a
@@ -266,4 +304,24 @@ export function buildAwardCreateParameters(input) {
     contentType: EMPTY_CONTENT_TYPE,
     expires: requireExpiry(input.expires),
   });
+}
+
+export function buildDeliveryReceiptCreateParameters(input) {
+  const payload = assertDeliveryReceiptPayload({
+    deliverableRef: input.deliverableRef,
+    deliverableHash: input.deliverableHash,
+    fileName: input.fileName,
+    mediaType: input.mediaType,
+  });
+  return Object.freeze({
+    attributes: mapDeliveryReceiptAttributes(input),
+    payload: jsonToPayload(payload),
+    contentType: JSON_CONTENT_TYPE,
+    expires: requireExpiry(input.expires),
+    flags: Object.freeze({ readonly: true }),
+  });
+}
+
+export function readDeliveryReceiptPayload(entity) {
+  return assertDeliveryReceiptPayload(entity.toJson());
 }

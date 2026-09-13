@@ -10,6 +10,8 @@ import {
   assertMoney,
   buildAwardByIdPredicate,
   buildAwardCreateParameters,
+  buildDeliveryReceiptCreateParameters,
+  buildDeliveryReceiptPredicate,
   buildActiveQuotesByRfqPredicate,
   buildOpenQuotePredicate,
   buildQuoteByIdPredicate,
@@ -17,18 +19,22 @@ import {
   buildRfqByIdPredicate,
   buildRfqCreateParameters,
   createBuyerArkivWriter,
+  createDeliveryReceiptQuery,
   createActiveQuotesByRfqQuery,
   createOpenQuoteQuery,
   createSellerArkivWriter,
   mapAwardAttributes,
+  mapDeliveryReceiptAttributes,
   mapQuoteAttributes,
   mapRfqAttributes,
   queryAwardById,
+  queryDeliveryReceipts,
   queryActiveQuotesByRfq,
   queryOpenQuotes,
   queryQuoteById,
   queryRfqById,
   readRfqPayload,
+  readDeliveryReceiptPayload,
   snapshotSelectedQuote,
   snapshotAward,
 } from "../src/arkiv/index.js";
@@ -44,6 +50,8 @@ const SELLER = "0x4A643d1340F779e5A58a5413eD8908F7e8DC519E";
 const OTHER = "0xEAAD2aaC9cdFE74F45F95C74E87b981561BcEbaC";
 const CREATED_AT = 1_800_000_000n;
 const DEADLINE = 1_800_003_600n;
+const DELIVERABLE_REF = "ab".repeat(32);
+const DELIVERABLE_HASH = `0x${"77".repeat(32)}`;
 
 function value(type, storedValue) {
   return { type, value: storedValue };
@@ -636,4 +644,95 @@ test("separates Buyer and Seller write capabilities and verifies signer ownershi
     () => createSellerArkivWriter({ walletClient: buyerWallet, seller: SELLER }),
     /signer does not match/,
   );
+});
+
+test("maps an immutable Seller-owned delivery receipt with metadata-only JSON", () => {
+  const expires = ExpirationTime.fromDays(30);
+  const input = {
+    awardId: AWARD_ID,
+    seller: SELLER,
+    createdAt: CREATED_AT,
+    deliverableRef: DELIVERABLE_REF,
+    deliverableHash: DELIVERABLE_HASH,
+    fileName: "report.md",
+    mediaType: "text/markdown",
+    expires,
+  };
+  assert.deepEqual(mapDeliveryReceiptAttributes(input), {
+    entity_type: value("str", "delivery_receipt"),
+    award_id: value("bytes32", AWARD_ID),
+    seller: value("addr", addr(SELLER).value),
+    created_at: value("u64", CREATED_AT),
+  });
+  const parameters = buildDeliveryReceiptCreateParameters(input);
+  assert.deepEqual(JSON.parse(new TextDecoder().decode(parameters.payload)), {
+    deliverableRef: DELIVERABLE_REF,
+    deliverableHash: DELIVERABLE_HASH,
+    fileName: "report.md",
+    mediaType: "text/markdown",
+  });
+  assert.equal(parameters.contentType, "application/json");
+  assert.deepEqual(parameters.flags, { readonly: true });
+  assert.equal(parameters.expires, expires);
+  assert.equal("deliverableBytes" in JSON.parse(new TextDecoder().decode(parameters.payload)), false);
+  assert.deepEqual(readDeliveryReceiptPayload({ toJson: () => JSON.parse(new TextDecoder().decode(parameters.payload)) }), JSON.parse(new TextDecoder().decode(parameters.payload)));
+  assert.throws(() => buildDeliveryReceiptCreateParameters({ ...input, deliverableRef: "not-a-ref" }), /Swarm reference/);
+  assert.throws(() => buildDeliveryReceiptCreateParameters({ ...input, fileName: "" }), /fileName/);
+  assert.throws(() => readDeliveryReceiptPayload({ toJson: () => ({
+    deliverableRef: DELIVERABLE_REF,
+    deliverableHash: DELIVERABLE_HASH,
+    fileName: "report.md",
+    mediaType: "text/markdown",
+    deliverableBytes: [1, 2, 3],
+  }) }), /must contain only/);
+});
+
+test("delivery receipt query binds type, Award, Seller, and Arkiv owner and walks every page", async () => {
+  const calls = [];
+  const pages = [
+    { entities: [{ key: "first" }], hasNextPage: () => true },
+    { entities: [{ key: "second" }], hasNextPage: () => false },
+  ];
+  pages[0].next = async () => pages[1];
+  const builder = {
+    where(predicate) { calls.push(["where", predicate]); return this; },
+    ownedBy(owner) { calls.push(["ownedBy", owner]); return this; },
+    limit(limit) { calls.push(["limit", limit]); return this; },
+    async fetch() { calls.push(["fetch"]); return pages[0]; },
+  };
+  const publicClient = { select(selection) { calls.push(["select", selection]); return builder; } };
+  const criteria = { awardId: AWARD_ID, seller: SELLER };
+  assert.equal(createDeliveryReceiptQuery(publicClient, criteria), builder);
+  const predicate = buildDeliveryReceiptPredicate(criteria);
+  assert.equal(String(predicate), `entity_type = str('delivery_receipt') AND award_id = bytes32(${AWARD_ID}) AND seller = addr(${addr(SELLER).value})`);
+  calls.length = 0;
+  assert.deepEqual((await queryDeliveryReceipts(publicClient, criteria)).map(entity => entity.key), ["first", "second"]);
+  assert.deepEqual(calls.map(([method]) => method), ["select", "where", "ownedBy", "limit", "fetch"]);
+  assert.deepEqual(calls.find(([method]) => method === "ownedBy"), ["ownedBy", addr(SELLER).value]);
+});
+
+test("only the Seller writer exposes delivery receipt creation", async () => {
+  const calls = [];
+  const walletClient = {
+    account: { address: SELLER },
+    async createEntity(parameters) { calls.push(parameters); return { entityKey: AWARD_ID }; },
+  };
+  const sellerWriter = createSellerArkivWriter({ walletClient, seller: SELLER });
+  const buyerWriter = createBuyerArkivWriter({
+    walletClient: { ...walletClient, account: { address: BUYER } },
+    buyer: BUYER,
+  });
+  assert.equal(buyerWriter.createDeliveryReceipt, undefined);
+  await sellerWriter.createDeliveryReceipt({
+    awardId: AWARD_ID,
+    createdAt: CREATED_AT,
+    deliverableRef: DELIVERABLE_REF,
+    deliverableHash: DELIVERABLE_HASH,
+    fileName: "report.md",
+    mediaType: "text/markdown",
+    expires: ExpirationTime.fromDays(30),
+  });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].attributes.seller.value, addr(SELLER).value);
+  assert.deepEqual(calls[0].flags, { readonly: true });
 });

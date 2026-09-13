@@ -26,6 +26,8 @@ import { fundProcurement, loadProcurementWorkspace } from '../application/procur
 import { computeMarketDisclosure } from './market-disclosure.js';
 import {
   buildDeliveryHandoffQuery,
+  canPublishDeliveryReceiptRecovery,
+  discoverDeliveryReceipt,
   deliverableStateLabel,
   fetchDeliverableForDownload,
   importDeliveryHandoffLink,
@@ -33,6 +35,7 @@ import {
   loadDeliverySession,
   parseDeliveryHandoffQuery,
   prepareDelivery,
+  publishDeliveryReceipt,
   releaseProcurement,
   retrieveProcurementDeliverable,
   saveDeliverySession,
@@ -57,6 +60,8 @@ let deliverableBlobUrl, deliverableAccessBusy = false;
 const verifiedCopyValues = {};
 let deliveryRecord, deliveryAttempt, deliveryBusy = false, retrievalBusy = false;
 let releaseBusy = false, releaseResult;
+
+let deliveryPollTimer, deliveryPollInFlight = false, deliveryPollContext;
 
 const pages = {
   market: ['Market', 'Open requests for short-lived digital work.'],
@@ -98,6 +103,7 @@ function resetCompletedRequest() {
 
 function renderPage({ focus = false } = {}) {
   const current = route();
+  if (current.key !== 'workspace') stopDeliveryReceiptPolling();
   const page = current.key === 'rfq'
     ? ['RFQ Detail', 'Live eligible Quotes for this Request.']
     : current.key === 'workspace'
@@ -550,6 +556,13 @@ function renderWorkspace() {
   $('fund-commitment').disabled = fundingBusy;
   $('submit-delivery').hidden = !(status === 'FUNDED' && connectedSeller);
   $('submit-delivery').disabled = deliveryBusy;
+  const receiptRecoveryAvailable = canPublishDeliveryReceiptRecovery({
+    workspace,
+    delivery: deliveryRecord,
+    seller: walletSession?.owner,
+  });
+  $('delivery-receipt-recovery').hidden = !receiptRecoveryAvailable;
+  $('publish-delivery-receipt').disabled = deliveryBusy;
   $('retrieve-deliverable').hidden = !(status === 'DELIVERED' && !retrieved && connectedBuyer);
   $('retrieve-deliverable').disabled = retrievalBusy;
   $('release-commitment').hidden = !(status === 'DELIVERED' && retrieved && connectedBuyer);
@@ -616,7 +629,45 @@ function renderWorkspace() {
   }
 }
 
+function stopDeliveryReceiptPolling() {
+  if (deliveryPollTimer) clearInterval(deliveryPollTimer);
+  deliveryPollTimer = undefined;
+  deliveryPollContext = undefined;
+}
+
+async function pollDeliveryReceipt() {
+  const context = deliveryPollContext;
+  if (!context || deliveryPollInFlight || document.hidden) return;
+  if (context.version !== workspaceVersion || route().key !== 'workspace' ||
+      route().awardId !== context.awardId || workspace?.status !== 'FUNDED' || deliveryRecord) {
+    stopDeliveryReceiptPolling();
+    return;
+  }
+  deliveryPollInFlight = true;
+  try {
+    const discovered = await discoverDeliveryReceipt({ workspace, arkivPublicClient });
+    if (!discovered || context !== deliveryPollContext || context.version !== workspaceVersion ||
+        route().awardId !== context.awardId || deliveryRecord) return;
+    deliveryRecord = discovered;
+    try { saveDeliverySession(localStorage, deliveryRecord); } catch { /* Metadata remains available in this tab. */ }
+    stopDeliveryReceiptPolling();
+    renderWorkspace();
+  } catch {
+    // Arkiv availability must not break the workspace; the next interval retries.
+  } finally {
+    deliveryPollInFlight = false;
+  }
+}
+
+function startDeliveryReceiptPolling(awardId, version) {
+  stopDeliveryReceiptPolling();
+  if (workspace?.status !== 'FUNDED' || deliveryRecord) return;
+  deliveryPollContext = Object.freeze({ awardId, version });
+  deliveryPollTimer = setInterval(pollDeliveryReceipt, 5000);
+}
+
 async function loadWorkspace(awardId, { preserveFunding = false, preserveRelease = false, preserveDelivery = false } = {}) {
+  stopDeliveryReceiptPolling();
   const version = ++workspaceVersion;
   if (!preserveFunding) fundingResult = undefined;
   if (!preserveRelease) releaseResult = undefined;
@@ -638,7 +689,19 @@ async function loadWorkspace(awardId, { preserveFunding = false, preserveRelease
     workspace = result;
     if (!preserveDelivery) {
       deliveryRecord = loadDeliverySession(localStorage, workspace);
-      if (!deliveryRecord) {
+    }
+    if (!deliveryRecord && workspace.status === 'FUNDED') {
+      try {
+        deliveryRecord = await discoverDeliveryReceipt({ workspace, arkivPublicClient });
+        if (version !== workspaceVersion || route().awardId !== awardId) return;
+        if (deliveryRecord) {
+          try { saveDeliverySession(localStorage, deliveryRecord); } catch { /* Metadata remains available in this tab. */ }
+        }
+      } catch {
+        // Render the funded workspace and let polling retry Arkiv discovery.
+      }
+    }
+    if (!deliveryRecord && !preserveDelivery) {
         const metadata = parseDeliveryHandoffQuery(route().deliveryLinkQuery, workspace);
         const imported = importDeliveryHandoffLink({ workspace, metadata });
         if (imported) {
@@ -646,10 +709,10 @@ async function loadWorkspace(awardId, { preserveFunding = false, preserveRelease
           deliveryRecord = imported;
           message('delivery-message', 'Imported delivery metadata from the handoff link. Retrieve to verify against Swarm.');
         }
-      }
     }
     deliveryAttempt = undefined;
     renderWorkspace();
+    startDeliveryReceiptPolling(awardId, version);
   } catch (error) {
     if (version !== workspaceVersion) return;
     $('workspace-status').textContent = 'Error';
@@ -1003,6 +1066,34 @@ async function accessDeliverable(mode) {
 $('open-deliverable').addEventListener('click', () => accessDeliverable('open'));
 $('download-deliverable').addEventListener('click', () => accessDeliverable('download'));
 
+$('publish-delivery-receipt').addEventListener('click', async () => {
+  if (deliveryBusy || !canPublishDeliveryReceiptRecovery({
+    workspace,
+    delivery: deliveryRecord,
+    seller: walletSession?.owner,
+  })) return;
+  deliveryBusy = true;
+  $('publish-delivery-receipt').disabled = true;
+  try {
+    await assertWalletSession(provider, walletSession.owner);
+    message('delivery-message', 'Publishing delivery receipt on Arkiv…');
+    deliveryRecord = await publishDeliveryReceipt({
+      workspace,
+      delivery: deliveryRecord,
+      arkivPublicClient,
+      arkivSellerWriter: walletSession,
+    });
+    try { saveDeliverySession(localStorage, deliveryRecord); } catch { /* Receipt is durable on Arkiv. */ }
+    renderWorkspace();
+    message('delivery-message', 'Available · Buyer discovery published on Arkiv.');
+  } catch (error) {
+    message('delivery-message', error.message || 'Arkiv receipt publication failed. Retry publication.', true);
+  } finally {
+    deliveryBusy = false;
+    $('publish-delivery-receipt').disabled = false;
+  }
+});
+
 $('submit-delivery').addEventListener('click', async () => {
   if (deliveryBusy || !workspace || workspaceStatusWithDelivery(workspace, deliveryRecord) !== 'FUNDED') return;
   deliveryBusy = true;
@@ -1030,7 +1121,24 @@ $('submit-delivery').addEventListener('click', async () => {
     });
     try { saveDeliverySession(localStorage, deliveryRecord); }
     catch { message('delivery-message', 'Available for this tab. Browser storage is full; free up space before switching to the Buyer.', true); }
+    let receiptMessage;
+    let receiptMessageError = false;
+    try {
+      message('delivery-message', 'Publishing delivery receipt on Arkiv…');
+      deliveryRecord = await publishDeliveryReceipt({
+        workspace,
+        delivery: deliveryRecord,
+        arkivPublicClient,
+        arkivSellerWriter: walletSession,
+      });
+      try { saveDeliverySession(localStorage, deliveryRecord); } catch { /* Receipt is durable on Arkiv. */ }
+      receiptMessage = 'Available · Buyer discovery published on Arkiv.';
+    } catch (error) {
+      receiptMessage = `${error.message || 'Arkiv receipt publication failed.'} Retry with Publish delivery receipt.`;
+      receiptMessageError = true;
+    }
     renderWorkspace();
+    message('delivery-message', receiptMessage, receiptMessageError);
   } catch (error) {
     message('delivery-message', error.message || 'Delivery upload failed. Retry with this tab open.', true);
   } finally {
@@ -1088,6 +1196,7 @@ $('release-commitment').addEventListener('click', async () => {
 });
 
 window.addEventListener('beforeunload', event => {
+  stopDeliveryReceiptPolling();
   if (requestBusy || quoteBusy || awardBusy || fundingBusy || deliveryBusy || retrievalBusy || releaseBusy || (requestAttempt && !requestCompleted) || quoteAttempt || (awardAttempt && !awardConfirmed)) {
     event.preventDefault();
     event.returnValue = '';
@@ -1098,6 +1207,9 @@ document.querySelector('.skip-link').addEventListener('click', event => {
   $('main').focus();
 });
 window.addEventListener('hashchange', () => renderPage({ focus: true }));
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) pollDeliveryReceipt();
+});
 setInterval(() => {
   syncMarketClock();
   syncRfqClock();

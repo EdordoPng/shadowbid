@@ -48,6 +48,10 @@ export async function connectArkivWallet(provider) {
       await assertWalletSession(provider, owner);
       return sellerWriter.createQuote(input);
     },
+    async createDeliveryReceipt(input) {
+      await assertWalletSession(provider, owner);
+      return sellerWriter.createDeliveryReceipt(input);
+    },
   });
 }
 

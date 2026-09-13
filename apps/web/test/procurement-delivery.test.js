@@ -4,13 +4,16 @@ import { createProcurementContext, AVALANCHE_ESCROW_STATE } from '@shadowbid/sha
 import { deriveTermsHash } from '@shadowbid/shared/commitment';
 import {
   buildDeliveryHandoffQuery,
+  canPublishDeliveryReceiptRecovery,
   deliverableStateLabel,
+  discoverDeliveryReceipt,
   fetchDeliverableForDownload,
   importDeliveryHandoffLink,
   isSpecificationVerified,
   loadDeliverySession,
   parseDeliveryHandoffQuery,
   prepareDelivery,
+  publishDeliveryReceipt,
   releaseProcurement,
   retrieveProcurementDeliverable,
   saveDeliverySession,
@@ -35,7 +38,7 @@ const TERMS_HASH = deriveTermsHash({
 function workspace(escrowState = AVALANCHE_ESCROW_STATE.FUNDED) {
   return {
     status: escrowState === AVALANCHE_ESCROW_STATE.RELEASED ? 'SETTLED' : 'FUNDED',
-    award: { awardId: AWARD_ID, rfqId: RFQ_ID, quoteId: QUOTE_ID, buyer: BUYER, seller: SELLER },
+    award: { awardId: AWARD_ID, rfqId: RFQ_ID, quoteId: QUOTE_ID, buyer: BUYER, seller: SELLER, deadline: 1_900_000_000n },
     rfq: { specificationRef: 'a'.repeat(64), specificationHash: SPECIFICATION_HASH },
     commitment: { procurementId: AWARD_ID, seller: SELLER, token: TOKEN, amount: 5n, deadline: 1_900_000_000n, termsHash: TERMS_HASH },
     context: createProcurementContext({
@@ -60,6 +63,51 @@ async function delivered() {
   return submitDeliveryAttempt(attempt, { workspace: workspace(), swarmClient: client });
 }
 
+function receiptEntity({
+  key = `0x${'55'.repeat(32)}`,
+  owner = SELLER,
+  systemCreatedAt = 20n,
+  createdAt = 10n,
+  awardId = AWARD_ID,
+  seller = SELLER,
+  payload,
+} = {}) {
+  return {
+    key,
+    owner,
+    creator: owner,
+    createdAt: systemCreatedAt,
+    expiresAt: 999n,
+    creationFlags: { readonly: true },
+    contentType: 'application/json',
+    attributes: {
+      entity_type: { value: 'delivery_receipt' },
+      award_id: { value: awardId },
+      seller: { value: seller },
+      created_at: { value: createdAt },
+    },
+    toJson: () => payload ?? ({
+      deliverableRef: 'b'.repeat(64),
+      deliverableHash: `0x${'44'.repeat(32)}`,
+      fileName: 'report.md',
+      mediaType: 'text/markdown',
+    }),
+  };
+}
+
+function arkivReceipts(entities = []) {
+  return {
+    select() {
+      return {
+        where() { return this; },
+        ownedBy() { return this; },
+        limit() { return this; },
+        async fetch() { return { entities, hasNextPage: () => false }; },
+      };
+    },
+  };
+}
+
 test('Seller delivery uses the existing exact-byte Swarm path and derives DELIVERED', async () => {
   const client = swarm();
   const stages = [];
@@ -70,6 +118,152 @@ test('Seller delivery uses the existing exact-byte Swarm path and derives DELIVE
   assert.equal(result.referenceVerification.byteEquality, true);
   assert.equal(result.referenceVerification.hashEquality, true);
   assert.deepEqual(stages, ['Storing on Swarm', 'Verifying reference', 'Available']);
+});
+
+test('publishes a readonly Arkiv receipt only for a Swarm-verified Award Seller delivery', async () => {
+  const delivery = await delivered();
+  const calls = [];
+  const writer = {
+    owner: SELLER,
+    async createDeliveryReceipt(input) { calls.push(input); return { entityKey: `0x${'66'.repeat(32)}` }; },
+  };
+  const published = await publishDeliveryReceipt({
+    workspace: workspace(), delivery, arkivPublicClient: arkivReceipts(), arkivSellerWriter: writer, createdAt: 123n,
+  });
+  assert.equal(calls.length, 1);
+  assert.deepEqual({
+    awardId: calls[0].awardId,
+    deliverableRef: calls[0].deliverableRef,
+    deliverableHash: calls[0].deliverableHash,
+    fileName: calls[0].fileName,
+    mediaType: calls[0].mediaType,
+    createdAt: calls[0].createdAt,
+  }, {
+    awardId: AWARD_ID,
+    deliverableRef: delivery.uploadedDeliverable.deliverableRef,
+    deliverableHash: delivery.uploadedDeliverable.deliverableHash,
+    fileName: 'report.md', mediaType: 'text/markdown', createdAt: 123n,
+  });
+  assert.equal(calls[0].expires.minLifetime > 0n, true);
+  assert.equal(published.deliveryReceipt.published, true);
+
+  await assert.rejects(publishDeliveryReceipt({
+    workspace: workspace(), delivery: { ...delivery, referenceVerification: { hashEquality: false } },
+    arkivPublicClient: arkivReceipts(), arkivSellerWriter: writer,
+  }), /Verify the Swarm delivery/);
+  await assert.rejects(publishDeliveryReceipt({
+    workspace: workspace(), delivery, arkivPublicClient: arkivReceipts(),
+    arkivSellerWriter: { ...writer, owner: BUYER },
+  }), /Only the Award Seller/);
+  assert.equal(calls.length, 1);
+});
+
+test('receipt publication is idempotent for identical metadata and rejects a conflicting retry', async () => {
+  const delivery = await delivered();
+  const matching = receiptEntity({ payload: {
+    deliverableRef: delivery.uploadedDeliverable.deliverableRef,
+    deliverableHash: delivery.uploadedDeliverable.deliverableHash,
+    fileName: delivery.fileName,
+    mediaType: delivery.mediaType,
+  } });
+  const writer = { owner: SELLER, async createDeliveryReceipt() { throw new Error('must not create'); } };
+  const resumed = await publishDeliveryReceipt({
+    workspace: workspace(), delivery, arkivPublicClient: arkivReceipts([matching]), arkivSellerWriter: writer,
+  });
+  assert.equal(resumed.deliveryReceipt.entityKey, matching.key);
+  await assert.rejects(publishDeliveryReceipt({
+    workspace: workspace(), delivery: { ...delivery, fileName: 'different.md' },
+    arkivPublicClient: arkivReceipts([matching]), arkivSellerWriter: writer,
+  }), /Delivery already recorded/);
+});
+
+test('verified local Seller delivery exposes receipt recovery until publication succeeds without another Swarm upload', async () => {
+  const client = swarm();
+  const attempt = prepareDelivery({
+    awardId: AWARD_ID,
+    seller: SELLER,
+    fileName: 'report.md',
+    mediaType: 'text/markdown',
+    bytes: Uint8Array.of(1, 2, 3),
+  });
+  const delivery = await submitDeliveryAttempt(attempt, { workspace: workspace(), swarmClient: client });
+  assert.equal(client.uploadCount, 1);
+  assert.equal(canPublishDeliveryReceiptRecovery({ workspace: workspace(), delivery, seller: SELLER }), true);
+
+  const published = await publishDeliveryReceipt({
+    workspace: workspace(),
+    delivery,
+    arkivPublicClient: arkivReceipts(),
+    arkivSellerWriter: {
+      owner: SELLER,
+      async createDeliveryReceipt() { return { entityKey: `0x${'66'.repeat(32)}` }; },
+    },
+  });
+
+  assert.equal(client.uploadCount, 1);
+  assert.equal(published.status, 'DELIVERED');
+  assert.equal(published.deliveryReceipt.published, true);
+  assert.equal(canPublishDeliveryReceiptRecovery({ workspace: workspace(), delivery: published, seller: SELLER }), false);
+});
+
+test('failed receipt recovery preserves verified local delivery and remains retryable', async () => {
+  const delivery = await delivered();
+  await assert.rejects(publishDeliveryReceipt({
+    workspace: workspace(),
+    delivery,
+    arkivPublicClient: arkivReceipts(),
+    arkivSellerWriter: {
+      owner: SELLER,
+      async createDeliveryReceipt() { throw new Error('Arkiv unavailable'); },
+    },
+  }), /Arkiv unavailable/);
+
+  assert.equal(delivery.status, 'DELIVERED');
+  assert.equal(delivery.referenceVerification.hashEquality, true);
+  assert.equal(delivery.deliveryReceipt, undefined);
+  assert.equal(canPublishDeliveryReceiptRecovery({ workspace: workspace(), delivery, seller: SELLER }), true);
+});
+
+test('receipt recovery is unavailable to non-Sellers, unverified records, and already-published deliveries', async () => {
+  const delivery = await delivered();
+  assert.equal(canPublishDeliveryReceiptRecovery({ workspace: workspace(), delivery, seller: BUYER }), false);
+  assert.equal(canPublishDeliveryReceiptRecovery({ workspace: { ...workspace(), status: 'SETTLED' }, delivery, seller: SELLER }), false);
+  assert.equal(canPublishDeliveryReceiptRecovery({
+    workspace: workspace(), delivery: { ...delivery, referenceVerification: { hashEquality: false } }, seller: SELLER,
+  }), false);
+  assert.equal(canPublishDeliveryReceiptRecovery({
+    workspace: workspace(),
+    delivery: { ...delivery, uploadedDeliverable: { ...delivery.uploadedDeliverable, deliverableRef: undefined } },
+    seller: SELLER,
+  }), false);
+  assert.equal(canPublishDeliveryReceiptRecovery({
+    workspace: workspace(),
+    delivery: { ...delivery, uploadedDeliverable: { ...delivery.uploadedDeliverable, deliverableHash: undefined } },
+    seller: SELLER,
+  }), false);
+  assert.equal(canPublishDeliveryReceiptRecovery({
+    workspace: workspace(), delivery: { ...delivery, deliveryReceipt: { entityKey: '0xentity', published: true } }, seller: SELLER,
+  }), false);
+});
+
+test('Buyer discovery rejects malformed/wrong-owner/wrong-binding records and deterministically chooses the first valid receipt', async () => {
+  const later = receiptEntity({ key: `0x${'99'.repeat(32)}`, systemCreatedAt: 20n, createdAt: 10n });
+  const tieHigh = receiptEntity({ key: `0x${'22'.repeat(32)}`, systemCreatedAt: 5n, createdAt: 2n });
+  const canonical = receiptEntity({ key: `0x${'11'.repeat(32)}`, systemCreatedAt: 5n, createdAt: 2n });
+  const wrongOwner = receiptEntity({ key: `0x${'00'.repeat(32)}`, owner: BUYER, systemCreatedAt: 1n });
+  const wrongAward = receiptEntity({ key: `0x${'02'.repeat(32)}`, awardId: RFQ_ID, systemCreatedAt: 1n });
+  const wrongSeller = receiptEntity({ key: `0x${'03'.repeat(32)}`, seller: BUYER, systemCreatedAt: 1n });
+  const malformed = receiptEntity({ key: `0x${'01'.repeat(32)}`, systemCreatedAt: 1n, payload: { deliverableRef: 'bad' } });
+  const noMarketContext = { ...workspace(), rfq: undefined, quote: undefined };
+  const discovered = await discoverDeliveryReceipt({
+    workspace: noMarketContext,
+    arkivPublicClient: arkivReceipts([later, wrongOwner, wrongAward, wrongSeller, tieHigh, malformed, canonical]),
+  });
+  assert.equal(discovered.deliveryReceipt.entityKey, canonical.key);
+  assert.equal(discovered.retrievedByBuyer, false);
+  assert.equal(discovered.buyerVerification, undefined);
+  assert.equal(discovered.uploadedDeliverable.deliverableRef, canonical.toJson().deliverableRef);
+  assert.equal(workspaceStatusWithDelivery(noMarketContext, discovered), 'DELIVERED');
 });
 
 test('Buyer retrieval repeats real byte/hash verification and rejects corrupted bytes', async () => {

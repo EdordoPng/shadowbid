@@ -143,3 +143,40 @@ export function createAwardByRfqAndSellerQuery(publicClient, criteria, { limit =
 export function queryAwardByRfqAndSeller(publicClient, criteria, options) {
   return createAwardByRfqAndSellerQuery(publicClient, criteria, options).fetch();
 }
+
+export function buildDeliveryReceiptPredicate({ awardId, seller }) {
+  return and(
+    eq("entity_type", str(ENTITY_TYPE.DELIVERY_RECEIPT)),
+    eq("award_id", bytes32(assertApplicationId(awardId, "awardId"))),
+    eq("seller", addr(seller)),
+  );
+}
+
+export function createDeliveryReceiptQuery(publicClient, criteria, { limit = 200 } = {}) {
+  const seller = addr(criteria.seller).value;
+  return publicClient
+    .select({
+      key: true,
+      owner: true,
+      creator: true,
+      createdAt: true,
+      expiresAt: true,
+      creationFlags: true,
+      contentType: true,
+      attributes: true,
+      payload: true,
+    })
+    .where(buildDeliveryReceiptPredicate(criteria))
+    .ownedBy(seller)
+    .limit(limit);
+}
+
+export async function queryDeliveryReceipts(publicClient, criteria, options) {
+  let page = await createDeliveryReceiptQuery(publicClient, criteria, options).fetch();
+  const entities = [...page.entities];
+  while (page.hasNextPage()) {
+    page = await page.next();
+    entities.push(...page.entities);
+  }
+  return Object.freeze(entities);
+}

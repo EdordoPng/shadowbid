@@ -1,4 +1,10 @@
-import { assertApplicationId } from '@shadowbid/shared/arkiv';
+import { ExpirationTime } from '@arkiv-network/sdk';
+import {
+  ENTITY_TYPE,
+  assertApplicationId,
+  queryDeliveryReceipts,
+  readDeliveryReceiptPayload,
+} from '@shadowbid/shared/arkiv';
 import { assertCanonicalBytes32 } from '@shadowbid/shared/commitment';
 import { AVALANCHE_ESCROW_STATE } from '@shadowbid/shared/procurement';
 import { uploadDeliverable, retrieveAndVerifyDeliverable } from '../deliverable.js';
@@ -13,6 +19,7 @@ import {
 
 const DELIVERY_KEY_PREFIX = 'shadowbid:delivery:';
 const SWARM_REFERENCE_PATTERN = /^[0-9a-f]{16,128}$/;
+const RECEIPT_RETENTION_SECONDS = 30 * 24 * 60 * 60;
 
 function sameAddress(left, right) {
   return left?.toLowerCase() === right?.toLowerCase();
@@ -56,6 +63,134 @@ function reconstructDelivery({ awardId, seller, fileName, mediaType, deliverable
     retrievedByBuyer,
     context: delivered.context,
     status: delivered.status,
+  });
+}
+
+function deliveryMetadata(delivery) {
+  return Object.freeze({
+    deliverableRef: delivery.uploadedDeliverable.deliverableRef,
+    deliverableHash: delivery.uploadedDeliverable.deliverableHash,
+    fileName: delivery.fileName,
+    mediaType: delivery.mediaType,
+  });
+}
+
+function sameDeliveryMetadata(left, right) {
+  return left.deliverableRef === right.deliverableRef &&
+    left.deliverableHash === right.deliverableHash &&
+    left.fileName === right.fileName &&
+    left.mediaType === right.mediaType;
+}
+
+function receiptCandidate(entity, workspace) {
+  const attributes = entity?.attributes;
+  if (!entity?.key || typeof entity.createdAt !== 'bigint' || !attributes) return undefined;
+  if (!sameAddress(entity.owner, workspace.award.seller)) return undefined;
+  if (!sameAddress(entity.creator, workspace.award.seller)) return undefined;
+  if (entity.creationFlags?.readonly !== true || entity.contentType !== 'application/json') return undefined;
+  if (attributes.entity_type?.value !== ENTITY_TYPE.DELIVERY_RECEIPT) return undefined;
+  if (attributes.award_id?.value !== workspace.award.awardId) return undefined;
+  if (!sameAddress(attributes.seller?.value, workspace.award.seller)) return undefined;
+  if (typeof attributes.created_at?.value !== 'bigint') return undefined;
+  try {
+    return Object.freeze({
+      entity,
+      payload: readDeliveryReceiptPayload(entity),
+      createdAt: attributes.created_at.value,
+    });
+  } catch {
+    return undefined;
+  }
+}
+
+function compareReceiptCandidates(left, right) {
+  if (left.entity.createdAt !== right.entity.createdAt) {
+    return left.entity.createdAt < right.entity.createdAt ? -1 : 1;
+  }
+  if (left.createdAt !== right.createdAt) return left.createdAt < right.createdAt ? -1 : 1;
+  return left.entity.key.localeCompare(right.entity.key);
+}
+
+export async function findCanonicalDeliveryReceipt({ workspace, arkivPublicClient }) {
+  const entities = await queryDeliveryReceipts(arkivPublicClient, {
+    awardId: workspace.award.awardId,
+    seller: workspace.award.seller,
+  });
+  const candidates = entities
+    .map(entity => receiptCandidate(entity, workspace))
+    .filter(Boolean)
+    .sort(compareReceiptCandidates);
+  return candidates[0];
+}
+
+export async function discoverDeliveryReceipt({ workspace, arkivPublicClient }) {
+  const receipt = await findCanonicalDeliveryReceipt({ workspace, arkivPublicClient });
+  if (!receipt) return undefined;
+  return Object.freeze({
+    ...reconstructDelivery({
+      awardId: workspace.award.awardId,
+      seller: workspace.award.seller,
+      ...receipt.payload,
+      workspace,
+    }),
+    deliveryReceipt: Object.freeze({ entityKey: receipt.entity.key, published: true }),
+  });
+}
+
+export function canPublishDeliveryReceiptRecovery({ workspace, delivery, seller }) {
+  return workspace?.status === 'FUNDED' &&
+    sameAddress(seller, workspace.award?.seller) &&
+    delivery?.awardId === workspace.award.awardId &&
+    sameAddress(delivery.seller, workspace.award.seller) &&
+    delivery.referenceVerification?.hashEquality === true &&
+    Boolean(delivery.uploadedDeliverable?.deliverableRef) &&
+    Boolean(delivery.uploadedDeliverable?.deliverableHash) &&
+    delivery.deliveryReceipt?.published !== true;
+}
+
+export async function publishDeliveryReceipt({
+  workspace,
+  delivery,
+  arkivPublicClient,
+  arkivSellerWriter,
+  createdAt = BigInt(Math.floor(Date.now() / 1000)),
+}) {
+  if (workspace.status !== 'FUNDED') throw new Error('Delivery requires a funded commitment.');
+  if (delivery.awardId !== workspace.award.awardId) throw new Error('Delivery does not belong to this Award.');
+  if (!sameAddress(delivery.seller, workspace.award.seller) ||
+      !sameAddress(arkivSellerWriter?.owner, workspace.award.seller)) {
+    throw new Error('Only the Award Seller can publish the delivery receipt.');
+  }
+  if (delivery.referenceVerification?.hashEquality !== true) {
+    throw new Error('Verify the Swarm delivery before publishing its receipt.');
+  }
+
+  const metadata = deliveryMetadata(delivery);
+  const existing = await findCanonicalDeliveryReceipt({ workspace, arkivPublicClient });
+  if (existing) {
+    if (!sameDeliveryMetadata(existing.payload, metadata)) {
+      throw new Error('Delivery already recorded for this Award.');
+    }
+    return Object.freeze({
+      ...delivery,
+      deliveryReceipt: Object.freeze({ entityKey: existing.entity.key, published: true }),
+    });
+  }
+
+  const deadline = Number(workspace.award.deadline);
+  const expires = ExpirationTime.atDate(
+    new Date((deadline + RECEIPT_RETENTION_SECONDS) * 1000),
+    { atLeast: ExpirationTime.fromDays(30) },
+  );
+  const result = await arkivSellerWriter.createDeliveryReceipt({
+    awardId: workspace.award.awardId,
+    createdAt,
+    ...metadata,
+    expires,
+  });
+  return Object.freeze({
+    ...delivery,
+    deliveryReceipt: Object.freeze({ entityKey: result.entityKey, published: true }),
   });
 }
 
@@ -166,14 +301,11 @@ export async function releaseProcurement({ workspace, delivery, fujiPublicClient
 }
 
 /**
- * Same-browser MVP metadata handoff: only small identifiers, never the
- * deliverable content itself. No Slice 3/4 mechanism hands off a
- * post-Award-creation value (Arkiv entities are write-once in this
- * codebase), so this is a device-local bridge, not a durable/cross-device
- * one — a Buyer opening this procurement from a different browser or
- * machine sees FUNDED, not DELIVERED, until they get the reference through
- * another channel. Real integrity is never delegated to this cache: Buyer
- * retrieval always re-downloads from Swarm and re-verifies the hash.
+ * Device-local cache of delivery metadata only, never deliverable bytes.
+ * Cross-profile discovery uses the Seller-owned Arkiv receipt; this cache
+ * remains a convenience and preserves real Buyer retrieval state locally.
+ * Integrity is never delegated to either metadata source: Buyer retrieval
+ * always re-downloads from Swarm and re-verifies the hash.
  */
 export function saveDeliverySession(sessionStore, delivery) {
   const payload = {
@@ -185,6 +317,8 @@ export function saveDeliverySession(sessionStore, delivery) {
     deliverableHash: delivery.uploadedDeliverable.deliverableHash,
     referenceVerified: delivery.referenceVerification?.hashEquality === true,
     retrievedByBuyer: delivery.retrievedByBuyer === true,
+    receiptPublished: delivery.deliveryReceipt?.published === true,
+    receiptEntityKey: delivery.deliveryReceipt?.entityKey,
   };
   sessionStore.setItem(`${DELIVERY_KEY_PREFIX}${delivery.awardId}`, JSON.stringify(payload));
 }
@@ -196,7 +330,7 @@ export function loadDeliverySession(sessionStore, workspace) {
     const payload = JSON.parse(serialized);
     if (payload.awardId !== workspace.award.awardId || !sameAddress(payload.seller, workspace.award.seller)) return undefined;
     if (payload.referenceVerified !== true) return undefined;
-    return reconstructDelivery({
+    const delivery = reconstructDelivery({
       awardId: payload.awardId,
       seller: payload.seller,
       fileName: payload.fileName,
@@ -206,6 +340,12 @@ export function loadDeliverySession(sessionStore, workspace) {
       retrievedByBuyer: payload.retrievedByBuyer === true,
       workspace,
     });
+    return payload.receiptPublished === true
+      ? Object.freeze({
+          ...delivery,
+          deliveryReceipt: Object.freeze({ entityKey: payload.receiptEntityKey, published: true }),
+        })
+      : delivery;
   } catch {
     return undefined;
   }
