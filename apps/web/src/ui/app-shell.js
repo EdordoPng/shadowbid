@@ -62,6 +62,7 @@ let deliveryRecord, deliveryAttempt, deliveryBusy = false, retrievalBusy = false
 let releaseBusy = false, releaseResult;
 let refundBusy = false, refundResult;
 let deliveryPollTimer, deliveryPollInFlight = false, deliveryPollContext;
+let bidAcceptedAnimationTimer;
 
 const pages = {
   market: ['Market', 'Open requests for short-lived digital work.'],
@@ -72,6 +73,34 @@ const pages = {
 function message(id, text, error = false) {
   $(id).textContent = text;
   $(id).dataset.error = String(error);
+}
+
+function showBidAcceptedAnimation() {
+  try {
+    const overlay = $('bid-accepted-overlay');
+    const animation = $('bid-accepted-animation');
+    if (!overlay || !animation) return;
+    if (bidAcceptedAnimationTimer !== undefined) clearTimeout(bidAcceptedAnimationTimer);
+    overlay.hidden = false;
+    animation.removeAttribute('src');
+    animation.src = '/animations/bid-accepted.html';
+    bidAcceptedAnimationTimer = setTimeout(() => {
+      try {
+        overlay.hidden = true;
+        animation.removeAttribute('src');
+      } catch {
+        // Celebration cleanup is best-effort and never affects Award success.
+      }
+      bidAcceptedAnimationTimer = undefined;
+    }, 2500);
+  } catch {
+    try {
+      $('bid-accepted-overlay')?.setAttribute('hidden', '');
+      $('bid-accepted-animation')?.removeAttribute('src');
+    } catch {
+      // Celebration playback is best-effort and never affects Award success.
+    }
+  }
 }
 
 function route() {
@@ -995,6 +1024,7 @@ $('create-award').addEventListener('click', async () => {
     message('award-message', 'Revalidating eligible Quote and creating Award…');
     const award = await submitAwardAttempt(awardAttempt, { buyerArkivWriter: walletSession, arkivPublicClient });
     awardConfirmed = true;
+    showBidAcceptedAnimation();
     $('award-created').hidden = false;
     $('award-reference').textContent = `Award ${award.awardId} · Procurement ${award.procurementId}`;
     $('open-workspace').href = `#procurement/${award.awardId}`;
