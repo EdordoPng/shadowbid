@@ -11,6 +11,7 @@ import {
   assertSpecificationHashBeforeFunding,
   assertVerifiedDeliveryBeforeRelease,
   canFund,
+  canRefund,
   canRelease,
   createProcurementContext,
   deriveProcurementStatus,
@@ -225,6 +226,18 @@ test("fund/release decision predicates match the frozen escrow state machine", (
   assert.equal(canRelease(AVALANCHE_ESCROW_STATE.RELEASED), false);
   assert.equal(canRelease(AVALANCHE_ESCROW_STATE.REFUNDED), false);
   assert.equal(canRelease(AVALANCHE_ESCROW_STATE.NONE), false);
+});
+
+test("canRefund is true only for a FUNDED escrow at or past its deadline", () => {
+  const DEADLINE = 1_800_000_000;
+
+  assert.equal(canRefund(AVALANCHE_ESCROW_STATE.FUNDED, DEADLINE, DEADLINE - 1), false);
+  assert.equal(canRefund(AVALANCHE_ESCROW_STATE.FUNDED, DEADLINE, DEADLINE), true);
+  assert.equal(canRefund(AVALANCHE_ESCROW_STATE.FUNDED, DEADLINE, DEADLINE + 1), true);
+
+  assert.equal(canRefund(AVALANCHE_ESCROW_STATE.NONE, DEADLINE, DEADLINE + 1), false);
+  assert.equal(canRefund(AVALANCHE_ESCROW_STATE.RELEASED, DEADLINE, DEADLINE + 1), false);
+  assert.equal(canRefund(AVALANCHE_ESCROW_STATE.REFUNDED, DEADLINE, DEADLINE + 1), false);
 });
 
 test("rejects a malformed escrowState value", () => {

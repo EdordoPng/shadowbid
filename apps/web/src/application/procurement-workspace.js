@@ -2,11 +2,15 @@ import { queryAwardById, queryQuoteById } from '@shadowbid/shared/arkiv';
 import { buildEscrowCommitmentInput, procurementIdFromAwardId } from '@shadowbid/shared/commitment';
 import {
   AVALANCHE_ESCROW_STATE,
+  canRefund,
   createProcurementContext,
   deriveProcurementStatus,
 } from '@shadowbid/shared/procurement';
+
+export { canRefund };
 import { formatUnits } from 'viem';
 import { fundAward } from '../fund-award.js';
+import { refundAward } from '../refund-award.js';
 import { readBackBuyerRequest } from '../buyer-request.js';
 import { formatBudget, service } from './market.js';
 import {
@@ -59,13 +63,17 @@ export async function loadProcurementWorkspace({ arkivPublicClient, fujiPublicCl
   // on-chain — never a fallback termsHash, never fabricated; simply
   // undefined once the RFQ has expired, so fundProcurement correctly
   // refuses rather than guessing.
-  // POST-FUND (FUNDED/RELEASED): the escrow itself is now the authoritative
-  // economic commitment — its already-verified termsHash is read straight
-  // from Fuji, never re-derived from the (possibly long-expired) RFQ. A
-  // naturally expired RFQ must not make an already-funded procurement
-  // impossible to release.
+  // POST-FUND (FUNDED/RELEASED/REFUNDED): the escrow itself is now the
+  // authoritative economic commitment — its already-verified termsHash is
+  // read straight from Fuji, never re-derived from the (possibly
+  // long-expired) RFQ. A naturally expired RFQ must not make an
+  // already-funded procurement impossible to release or refund.
   let commitment;
-  if (escrowState === AVALANCHE_ESCROW_STATE.FUNDED || escrowState === AVALANCHE_ESCROW_STATE.RELEASED) {
+  if (
+    escrowState === AVALANCHE_ESCROW_STATE.FUNDED ||
+    escrowState === AVALANCHE_ESCROW_STATE.RELEASED ||
+    escrowState === AVALANCHE_ESCROW_STATE.REFUNDED
+  ) {
     commitment = Object.freeze({
       procurementId,
       seller: stored.seller,
@@ -80,9 +88,6 @@ export async function loadProcurementWorkspace({ arkivPublicClient, fujiPublicCl
     } catch {
       commitment = undefined;
     }
-  }
-  if (escrowState === AVALANCHE_ESCROW_STATE.REFUNDED) {
-    throw new Error('This procurement was refunded and is outside the 5E happy path.');
   }
   const quote = quotePage?.entities?.[0];
   const context = createProcurementContext({
@@ -126,6 +131,30 @@ export async function fundProcurement({
     throw new Error('The original Request is no longer available on Arkiv; the canonical specification required to fund this escrow cannot be reconstructed.');
   }
   return fundAward({
+    publicClient: fujiPublicClient,
+    walletClient: fujiWalletClient,
+    escrowAddress: FUJI_ESCROW_ADDRESS,
+    escrowAbi,
+    usdcAddress: FUJI_USDC_ADDRESS,
+    usdcAbi,
+    commitment: workspace.commitment,
+    onStage,
+  });
+}
+
+export async function refundProcurement({
+  workspace,
+  fujiPublicClient,
+  fujiWalletClient,
+  onStage,
+}) {
+  if (fujiWalletClient.account.address.toLowerCase() !== workspace.award.buyer.toLowerCase()) {
+    throw new Error('Only the Buyer that owns this Award can refund its commitment.');
+  }
+  if (!workspace.commitment) {
+    throw new Error('This escrow has no readable on-chain commitment to refund.');
+  }
+  return refundAward({
     publicClient: fujiPublicClient,
     walletClient: fujiWalletClient,
     escrowAddress: FUJI_ESCROW_ADDRESS,

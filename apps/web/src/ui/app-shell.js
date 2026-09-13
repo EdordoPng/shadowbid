@@ -22,7 +22,7 @@ import {
   createFujiPublicClient,
   fujiTransactionUrl,
 } from '../application/avalanche.js';
-import { fundProcurement, loadProcurementWorkspace } from '../application/procurement-workspace.js';
+import { canRefund, fundProcurement, loadProcurementWorkspace, refundProcurement } from '../application/procurement-workspace.js';
 import { computeMarketDisclosure } from './market-disclosure.js';
 import {
   buildDeliveryHandoffQuery,
@@ -60,7 +60,7 @@ let deliverableBlobUrl, deliverableAccessBusy = false;
 const verifiedCopyValues = {};
 let deliveryRecord, deliveryAttempt, deliveryBusy = false, retrievalBusy = false;
 let releaseBusy = false, releaseResult;
-
+let refundBusy = false, refundResult;
 let deliveryPollTimer, deliveryPollInFlight = false, deliveryPollContext;
 
 const pages = {
@@ -492,10 +492,16 @@ function formatDeadline(timestamp) {
 
 function renderWorkspace() {
   const status = workspaceStatusWithDelivery(workspace, deliveryRecord);
-  const funded = status === 'FUNDED' || status === 'DELIVERED' || status === 'SETTLED';
+  const refunded = status === 'REFUNDED';
+  const funded = status === 'FUNDED' || status === 'DELIVERED' || status === 'SETTLED' || refunded;
   const delivered = Boolean(deliveryRecord);
   const retrieved = deliveryRecord?.retrievedByBuyer === true;
   const settled = status === 'SETTLED';
+  const refundEligible = canRefund(
+    workspace.context.escrowState,
+    Number(workspace.commitment?.deadline ?? 0),
+    Math.floor(Date.now() / 1000),
+  );
   const connectedBuyer = walletSession?.owner.toLowerCase() === workspace.award.buyer.toLowerCase();
   const connectedSeller = walletSession?.owner.toLowerCase() === workspace.award.seller.toLowerCase();
   const connectedOther = walletSession && !connectedBuyer && !connectedSeller;
@@ -504,7 +510,7 @@ function renderWorkspace() {
   $('page-title').textContent = workspace.rfq?.title || 'Procurement';
   $('page-description').textContent = 'Procurement Workspace';
   $('workspace-status').textContent = status;
-  $('workspace-status').dataset.tone = funded ? 'positive' : 'accent';
+  $('workspace-status').dataset.tone = refunded ? 'negative' : funded ? 'positive' : 'accent';
   $('workspace-reference').textContent = workspace.procurementId;
   $('workspace-supporting').textContent = `${workspace.serviceLabel ?? RFQ_EXPIRED_NOTE} · Seller ${shortAddress(workspace.award.seller)} · ${workspace.amountLabel} USDC`;
   $('workspace-price').textContent = `${workspace.amountLabel} USDC`;
@@ -523,7 +529,7 @@ function renderWorkspace() {
     $('workspace-deliverable-hash').textContent = deliveryRecord.uploadedDeliverable.deliverableHash;
   }
   $('commitment-amount').textContent = `${workspace.amountLabel} USDC`;
-  $('commitment-status').textContent = settled ? 'Settled' : retrieved ? 'Ready to Release' : funded ? 'FUNDED' : 'Awaiting funding';
+  $('commitment-status').textContent = refunded ? 'Refunded' : settled ? 'Settled' : retrieved ? 'Ready to Release' : funded ? 'FUNDED' : 'Awaiting funding';
   $('commitment-seller').textContent = workspace.award.seller;
   $('verified-award').textContent = shortAddress(workspace.award.awardId);
   verifiedCopyValues['verified-award'] = workspace.award.awardId;
@@ -564,22 +570,29 @@ function renderWorkspace() {
   $('delivery-receipt-recovery').hidden = !receiptRecoveryAvailable;
   $('publish-delivery-receipt').disabled = deliveryBusy;
   $('retrieve-deliverable').hidden = !(status === 'DELIVERED' && !retrieved && connectedBuyer);
-  $('retrieve-deliverable').disabled = retrievalBusy;
+  $('retrieve-deliverable').disabled = retrievalBusy || refundBusy;
   $('release-commitment').hidden = !(status === 'DELIVERED' && retrieved && connectedBuyer);
-  $('release-commitment').disabled = releaseBusy;
+  $('release-commitment').disabled = releaseBusy || refundBusy;
+  $('refund-commitment').hidden = !(connectedBuyer && refundEligible);
+  $('refund-commitment').disabled = refundBusy || retrievalBusy || releaseBusy;
   $('deliverable-access').hidden = !retrieved;
   $('open-deliverable').disabled = deliverableAccessBusy;
   $('download-deliverable').disabled = deliverableAccessBusy;
   $('seller-delivery-controls').hidden = !(status === 'FUNDED' && connectedSeller);
-  // Demo/operator-only: the handoff link is never rendered in the normal
-  // Seller UI (cross-profile MVP plumbing, not a product concept), but stays
-  // reachable from the DevTools console for the current cross-profile MVP.
-  window.shadowbidDeliveryHandoffLink = (delivered && connectedSeller)
+  const handoffAvailable = deliveryRecord?.referenceVerification?.hashEquality === true &&
+    deliveryRecord?.deliveryReceipt?.published !== true && connectedSeller;
+  $('delivery-handoff').hidden = !handoffAvailable;
+  if (!handoffAvailable) message('delivery-handoff-message', '');
+  window.shadowbidDeliveryHandoffLink = handoffAvailable
     ? `${location.origin}${location.pathname}#procurement/${workspace.award.awardId}?${buildDeliveryHandoffQuery(deliveryRecord)}`
     : undefined;
   $('settlement-receipt').hidden = !settled;
   if (settled) $('settlement-receipt-amount').textContent = `${workspace.amountLabel} USDC released to Seller`;
-  if (settled) {
+  if (refunded) {
+    message('funding-message', 'Refunded to the Buyer on Avalanche Fuji.');
+    message('delivery-message', 'This procurement was refunded after its deadline passed.');
+    $('delivery-copy').textContent = 'The commitment was refunded to the Buyer after the deadline.';
+  } else if (settled) {
     message('funding-message', 'Settled on Avalanche Fuji.');
     message('delivery-message', 'Delivery retrieved, accepted and settled.');
     $('delivery-copy').textContent = 'The verified work was accepted and the commitment was released.';
@@ -666,12 +679,13 @@ function startDeliveryReceiptPolling(awardId, version) {
   deliveryPollTimer = setInterval(pollDeliveryReceipt, 5000);
 }
 
-async function loadWorkspace(awardId, { preserveFunding = false, preserveRelease = false, preserveDelivery = false } = {}) {
+async function loadWorkspace(awardId, { preserveFunding = false, preserveRelease = false, preserveRefund = false, preserveDelivery = false } = {}) {
   stopDeliveryReceiptPolling();
   const version = ++workspaceVersion;
   if (!preserveFunding) fundingResult = undefined;
   if (!preserveRelease) releaseResult = undefined;
-  if (!preserveFunding && !preserveRelease && !preserveDelivery) {
+  if (!preserveRefund) refundResult = undefined;
+  if (!preserveFunding && !preserveRelease && !preserveRefund && !preserveDelivery) {
     $('workspace-status').textContent = 'Loading…';
     delete $('workspace-status').dataset.tone;
   }
@@ -920,9 +934,15 @@ $('request-form').addEventListener('submit', async event => {
     await loadMarket();
   } catch (error) {
     const prefix = requestAttempt ? (requestAttempt.uploaded ? 'Publication not confirmed. ' : 'Specification not stored. ') : '';
+    const diagnostic = [...new Set([error?.message, error?.cause?.message]
+      .filter(value => typeof value === 'string' && value.trim())
+      .map(value => value
+        .replace(/\bBearer\s+\S+/gi, 'Bearer [redacted]')
+        .replace(/([?&](?:token|secret|authorization|api[_-]?key|signature)=)[^&\s]+/gi, '$1[redacted]')
+        .slice(0, 500)))].join(' · Caused by: ');
     message('publish-message', prefix + (requestAttempt
       ? 'Retry with this tab open. Uploaded work and the Request ID are reused when available.'
-      : error.message), true);
+      : error.message) + (requestAttempt && diagnostic ? ` Details: ${diagnostic}` : ''), true);
     $('publish-request').textContent = requestAttempt ? 'Retry publication' : 'Publish Request';
   } finally {
     requestBusy = false;
@@ -1066,6 +1086,20 @@ async function accessDeliverable(mode) {
 $('open-deliverable').addEventListener('click', () => accessDeliverable('open'));
 $('download-deliverable').addEventListener('click', () => accessDeliverable('download'));
 
+$('copy-delivery-handoff').addEventListener('click', async () => {
+  const link = window.shadowbidDeliveryHandoffLink;
+  if (!link) return;
+  $('copy-delivery-handoff').disabled = true;
+  try {
+    await navigator.clipboard.writeText(link);
+    message('delivery-handoff-message', 'Buyer handoff link copied.');
+  } catch {
+    message('delivery-handoff-message', 'Could not copy the handoff link. Check browser clipboard permission and retry.', true);
+  } finally {
+    $('copy-delivery-handoff').disabled = false;
+  }
+});
+
 $('publish-delivery-receipt').addEventListener('click', async () => {
   if (deliveryBusy || !canPublishDeliveryReceiptRecovery({
     workspace,
@@ -1192,6 +1226,31 @@ $('release-commitment').addEventListener('click', async () => {
   } finally {
     releaseBusy = false;
     $('release-commitment').disabled = false;
+  }
+});
+
+$('refund-commitment').addEventListener('click', async () => {
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const eligible = workspace && canRefund(workspace.context.escrowState, Number(workspace.commitment?.deadline ?? 0), nowSeconds);
+  if (refundBusy || !eligible) return;
+  refundBusy = true;
+  $('refund-commitment').disabled = true;
+  try {
+    provider = window.ethereum;
+    const fujiSession = await connectFujiBuyerWallet(provider, workspace.award.buyer);
+    refundResult = await refundProcurement({
+      workspace,
+      fujiPublicClient,
+      fujiWalletClient: fujiSession.walletClient,
+      onStage: stage => message('funding-message', stage),
+    });
+    await loadWorkspace(workspace.award.awardId, { preserveFunding: true, preserveRefund: true, preserveDelivery: true });
+    if (workspace.status !== 'REFUNDED') throw new Error('Fuji refund completed but REFUNDED readback is not confirmed.');
+  } catch (error) {
+    message('funding-message', error.message || 'The commitment has not been refunded on Avalanche Fuji.', true);
+  } finally {
+    refundBusy = false;
+    if (workspace && route().key === 'workspace') renderWorkspace();
   }
 });
 

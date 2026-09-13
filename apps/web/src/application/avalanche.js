@@ -43,6 +43,10 @@ export const escrowAbi = Object.freeze([
     type: 'function', name: 'release', stateMutability: 'nonpayable', outputs: [],
     inputs: [{ name: 'procurementId', type: 'bytes32' }],
   },
+  {
+    type: 'function', name: 'refundAfterDeadline', stateMutability: 'nonpayable', outputs: [],
+    inputs: [{ name: 'procurementId', type: 'bytes32' }],
+  },
 ]);
 
 export const usdcAbi = Object.freeze([

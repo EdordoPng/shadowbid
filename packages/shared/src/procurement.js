@@ -207,3 +207,8 @@ export function isFundedWithMatchingTerms(escrowState, storedTermsHash, expected
 export function canRelease(escrowState) {
   return escrowState === AVALANCHE_ESCROW_STATE.FUNDED;
 }
+
+/** Only a FUNDED escrow past its deadline may be refunded; the contract is the final authority. */
+export function canRefund(escrowState, deadlineSeconds, nowSeconds) {
+  return escrowState === AVALANCHE_ESCROW_STATE.FUNDED && nowSeconds >= deadlineSeconds;
+}

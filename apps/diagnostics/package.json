@@ -2,7 +2,7 @@
   "name": "diagnostics",
   "version": "1.0.0",
   "scripts": {
-    "check": "node --check ./arkiv-slice-1a-query.mjs && node --check ./arkiv-slice-1b-live.mjs && node --check ./arkiv-slice-1c-expiry-live.mjs && node --check ./arkiv-slice-1d-award-live.mjs && node --check ./shadowbid-slice-2c-live.mjs && node --check ./shadowbid-slice-2d-release-live.mjs && node --check ./shadowbid-slice-2e-refund-live.mjs && node --check ./shadowbid-slice-3e-crosslayer-live.mjs",
+    "check": "node --check ./arkiv-slice-1a-query.mjs && node --check ./arkiv-slice-1b-live.mjs && node --check ./arkiv-slice-1c-expiry-live.mjs && node --check ./arkiv-slice-1d-award-live.mjs && node --check ./shadowbid-slice-2c-live.mjs && node --check ./shadowbid-slice-2d-release-live.mjs && node --check ./shadowbid-slice-2e-refund-live.mjs && node --check ./shadowbid-slice-3e-crosslayer-live.mjs && node --check ./shadowbid-slice-4b-buyer-request-live.mjs && node --check ./shadowbid-slice-4c-quotes-award-live.mjs && node --check ./shadowbid-slice-4d-fund-award-live.mjs && node --check ./shadowbid-slice-4e-delivery-live.mjs && node --check ./shadowbid-slice-4f-release-award-live.mjs && node --check ./shadowbid-slice-4g-full-happy-path-live.mjs",
     "arkiv:wallet-check": "node --env-file=../../.env.local ./arkiv-wallet-check.mjs",
     "arkiv:write-smoke": "node --env-file=../../.env.local ./arkiv-write.mjs",
     "arkiv:query-smoke": "node --env-file=../../.env.local ./arkiv-query.mjs",
@@ -15,6 +15,12 @@
     "shadowbid:slice-2d-live": "node --env-file=../../.env.local ./shadowbid-slice-2d-release-live.mjs",
     "shadowbid:slice-2e-live": "node --env-file=../../.env.local ./shadowbid-slice-2e-refund-live.mjs",
     "shadowbid:slice-3e-live": "node --env-file=../../.env.local ./shadowbid-slice-3e-crosslayer-live.mjs",
+    "shadowbid:slice-4b-live": "node --env-file=../../.env.local ./shadowbid-slice-4b-buyer-request-live.mjs",
+    "shadowbid:slice-4c-live": "node --env-file=../../.env.local ./shadowbid-slice-4c-quotes-award-live.mjs",
+    "shadowbid:slice-4d-live": "node --env-file=../../.env.local ./shadowbid-slice-4d-fund-award-live.mjs",
+    "shadowbid:slice-4e-live": "node ./shadowbid-slice-4e-delivery-live.mjs",
+    "shadowbid:slice-4f-live": "node --env-file=../../.env.local ./shadowbid-slice-4f-release-award-live.mjs",
+    "shadowbid:slice-4g-live": "node ./shadowbid-slice-4g-full-happy-path-live.mjs",
     "avalanche:read-smoke": "node ./avalanche-read.mjs",
     "avalanche:transfer-smoke": "node --env-file=../../.env.local ./avalanche-transfer.mjs"
   },

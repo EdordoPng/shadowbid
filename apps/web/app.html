@@ -211,6 +211,11 @@
                   <button id="publish-delivery-receipt" class="button button-primary" type="button">Publish delivery receipt</button>
                   <p class="caption muted">Publish the verified delivery metadata so the Buyer can discover it.</p>
                 </div>
+                <div id="delivery-handoff" class="stack compact-stack" hidden>
+                  <button id="copy-delivery-handoff" class="button" type="button">Copy Buyer handoff link</button>
+                  <p class="caption muted">Send this link to the Buyer so they can retrieve and verify the deliverable.</p>
+                  <p id="delivery-handoff-message" class="caption muted" role="status"></p>
+                </div>
                 <p id="delivery-message" class="caption muted" role="status">Delivery becomes available after funding.</p>
                 <div id="deliverable-access" class="stack compact-stack" hidden>
                   <button id="open-deliverable" class="button" type="button">Open file</button>
@@ -236,6 +241,7 @@
                 <button id="submit-delivery" class="button button-primary" type="button" hidden>Submit Delivery</button>
                 <button id="retrieve-deliverable" class="button button-primary" type="button" hidden>Retrieve Deliverable</button>
                 <button id="release-commitment" class="button button-primary" type="button" hidden>Approve &amp; Release</button>
+                <button id="refund-commitment" class="button" type="button" hidden>Refund after deadline</button>
                 <p id="funding-message" class="caption muted" role="status">Connect the Award Buyer to fund.</p>
               </section>
               <section class="panel">

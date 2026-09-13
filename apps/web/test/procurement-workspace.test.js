@@ -128,13 +128,22 @@ test('C) funding still refuses without the canonical specificationHash source �
   );
 });
 
-test('D) a hard workspace load failure never resolves to a fabricated/authoritative-looking result', async () => {
+test('D) a REFUNDED escrow loads as a legitimate terminal state, using only authoritative stored fields — nothing fabricated', async () => {
   const arkivPublicClient = fixtures();
-  const fujiPublicClient = { async readContract() { return { state: AVALANCHE_ESCROW_STATE.REFUNDED, termsHash: `0x${'00'.repeat(32)}` }; } };
-  await assert.rejects(
-    loadProcurementWorkspace({ arkivPublicClient, fujiPublicClient, awardId: AWARD_ID }),
-    /refunded/,
-  );
+  const stored = {
+    state: AVALANCHE_ESCROW_STATE.REFUNDED, seller: SELLER, token: FUJI_USDC_ADDRESS,
+    amount: 250_000n, deadline: 1_900_000_000n, termsHash: `0x${'ef'.repeat(32)}`,
+  };
+  const fujiPublicClient = { async readContract() { return stored; } };
+  const workspace = await loadProcurementWorkspace({ arkivPublicClient, fujiPublicClient, awardId: AWARD_ID });
+  assert.equal(workspace.status, 'REFUNDED');
+  assert.equal(workspace.context.escrowState, AVALANCHE_ESCROW_STATE.REFUNDED);
+  // The commitment is read straight from the authoritative escrow, exactly
+  // as for FUNDED/RELEASED — never fabricated from Arkiv/RFQ data.
+  assert.equal(workspace.commitment.termsHash, stored.termsHash);
+  assert.equal(workspace.commitment.seller, SELLER);
+  assert.equal(workspace.commitment.amount, stored.amount);
+  assert.equal(workspace.commitment.deadline, stored.deadline);
 });
 
 test('Fuji wallet composition switches the authorized Buyer without exposing credentials', async () => {
